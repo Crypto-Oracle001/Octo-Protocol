@@ -1309,6 +1309,15 @@ pub async fn authenticate_session(
 /// Prefix that marks an octo API key (vs a dashboard login JWT).
 const API_KEY_PREFIX: &str = "octo_sk_";
 
+/// API key scope: read-only access to the key's wallet.
+pub const SCOPE_READ: &str = "read";
+/// API key scope: write access to the key's wallet.
+pub const SCOPE_WRITE: &str = "write";
+/// API key scope: sponsor access to the key's wallet.
+pub const SCOPE_SPONSOR: &str = "sponsor";
+/// Every scope an API key may be granted.
+pub const ALL_SCOPES: &[&str] = &[SCOPE_READ, SCOPE_WRITE, SCOPE_SPONSOR];
+
 /// Extract the raw bearer token (`octo_sk_…` or a JWT), if present.
 fn bearer(headers: &axum::http::HeaderMap) -> Option<&str> {
     headers
@@ -1343,7 +1352,7 @@ pub async fn authorize_wallet(
     state: &AppState,
     wallet_id: Uuid,
 ) -> Result<(), ApiError> {
-    authorize_wallet_scope(headers, state, wallet_id, "read").await
+    authorize_wallet_scope(headers, state, wallet_id, SCOPE_READ).await
 }
 
 pub async fn authorize_wallet_scope(

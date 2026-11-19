@@ -43,7 +43,7 @@ pub async fn upload_signature(
     authenticate(&headers, &state).await?;
 
     let cfg = state.cloudinary().ok_or_else(|| {
-        ApiError::BadRequest(
+        ApiError::ServiceUnavailable(
             "image uploads are not configured on this server (set CLOUDINARY_CLOUD_NAME, \
              CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET)"
                 .into(),

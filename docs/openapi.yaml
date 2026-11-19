@@ -642,6 +642,44 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SubmitPaymentResponse'
+  /v1/uploads/signature:
+    post:
+      summary: Get a signed Cloudinary upload signature
+      description: >
+        Returns a short-lived signature the client uses to upload media directly to Cloudinary.
+        The response never contains the API secret. If the server has no Cloudinary settings
+        configured, this endpoint answers 503 (`service_unavailable`) — the request itself was
+        valid, so it is not a client error.
+      operationId: uploadSignature
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                folder:
+                  type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadSignatureResponse'
+        "401":
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "503":
+          description: >
+            Cloudinary uploads are not configured on this server (`service_unavailable`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /v1/webhooks:
     post:
       summary: Register a webhook
@@ -883,6 +921,37 @@ components:
               type: string
             active:
               type: boolean
+    UploadSignatureResponse:
+      type: object
+      required:
+        - statusCode
+        - message
+        - data
+      properties:
+        statusCode:
+          type: integer
+        message:
+          type: string
+        data:
+          type: object
+          required:
+            - signature
+            - timestamp
+            - api_key
+            - cloud_name
+          properties:
+            signature:
+              type: string
+              description: Cloudinary upload signature. Never the API secret.
+            timestamp:
+              type: integer
+            api_key:
+              type: string
+            cloud_name:
+              type: string
+            folder:
+              type: string
+              nullable: true
     ErrorResponse:
       type: object
       description: >
@@ -929,7 +998,7 @@ components:
             unsupported_media_type: { status: 415, meaning: The request body has an unsupported Content-Type. }
             too_many_requests: { status: 429, meaning: A rate limit or budget would be exceeded. }
             internal_error: { status: 500, meaning: "An internal error occurred; details are logged, never returned." }
-            service_unavailable: { status: 503, meaning: "A dependency needed to make a safe decision is unavailable." }
+            service_unavailable: { status: 503, meaning: "A server-side capability is not configured or temporarily unavailable; the request itself was valid." }
             upstream_timeout: { status: 504, meaning: "An upstream dependency (e.g. Horizon) did not answer in time." }
         message:
           type: string

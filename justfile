@@ -36,7 +36,7 @@ lint:
 deny:
     cargo deny check
 
-# Verify every environment variable read by the code is documented in docs/env-vars.md.
+# Verify every environment variable read by the code is documented in docs/environment-variables.md.
 check-env-docs:
     ./scripts/check-env-docs.sh
 

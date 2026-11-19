@@ -625,7 +625,7 @@ pub async fn get_gas_tank(
         .store()
         .sum_sponsored_fees_reserved_today(id)
         .await
-        .map_err(|_| ApiError::Internal)?;
+        .map_err(crate::error::internal)?;
     Ok(Envelope::ok(GasTankStatusView {
         wallet_id: id,
         provisioned: true,
@@ -669,7 +669,7 @@ pub async fn list_transactions(
         .store()
         .list_transactions_page(id, &filter, limit + 1, q.before)
         .await
-        .map_err(|_| ApiError::Internal)?;
+        .map_err(crate::error::internal)?;
 
     let has_more = rows.len() > limit as usize;
     let mut data = rows;
@@ -708,7 +708,7 @@ pub async fn get_wallet(
     authorize_wallet(&headers, &state, id).await?;
     let w = state.store().get_wallet(id).await.map_err(|e| match e {
         octo_store::StoreError::NotFound => ApiError::NotFound,
-        _ => ApiError::Internal,
+        _ => crate::error::internal(e),
     })?;
     Ok(Envelope::ok(to_view(w)))
 }
@@ -796,7 +796,7 @@ pub async fn list_wallets(
         .store()
         .list_wallets_for_user(user_id, limit + 1, q.before, q.include_archived.unwrap_or(false))
         .await
-        .map_err(|_| ApiError::Internal)?;
+        .map_err(crate::error::internal)?;
 
     let has_more = rows.len() > limit as usize;
     let mut wallets = rows;

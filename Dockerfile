@@ -5,7 +5,7 @@
 #
 # Build args (documented):
 #   RUST_VERSION  Rust toolchain image tag for the builder stage.
-#                 Default: 1.84 (keep in sync with rust-toolchain.toml).
+#                 Default: 1.84.1 (keep in sync with rust-toolchain.toml).
 #   BIN           Name of the server binary produced by the workspace crate.
 #                 Default: octo-server.
 #   APP_UID       UID of the non-root runtime user (distroless "nonroot").
@@ -20,7 +20,7 @@
 # (no curl/wget/shell available in the final image).
 # ---------------------------------------------------------------------------
 
-ARG RUST_VERSION=1.84
+ARG RUST_VERSION=1.84.1
 
 # ------------------------------- builder -----------------------------------
 FROM rust:${RUST_VERSION}-bookworm AS builder
@@ -71,6 +71,3 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD ["/usr/local/bin/octo-server", "healthcheck", "--url", "http://127.0.0.1:8080/health"]
 
 ENTRYPOINT ["/usr/local/bin/octo-server"]
-</｜｜DSML｜｜ parameter>
-</｜｜DSML｜｜ invoke>
-</｜｜DSML｜｜ calls>

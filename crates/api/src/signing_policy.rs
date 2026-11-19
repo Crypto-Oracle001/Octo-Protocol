@@ -7,6 +7,7 @@ pub const DEFAULT_MAX_TIME_WINDOW_SECONDS: u64 = 300;
 pub const DEFAULT_FEE_PERCENTILE: u8 = 50;
 pub const DEFAULT_FEE_CEILING_STROOPS: i64 = 10_000;
 const MAX_TIME_WINDOW_SECONDS: u64 = 86_400;
+const SUPPORTED_FEE_PERCENTILES: [u8; 11] = [10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 99];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SigningPolicy {
@@ -20,18 +21,26 @@ impl SigningPolicy {
         max_time_window_seconds: u64,
         fee_percentile: u8,
         fee_ceiling_stroops: i64,
-    ) -> Result<Self, &'static str> {
+    ) -> Result<Self, String> {
         if !(1..=MAX_TIME_WINDOW_SECONDS).contains(&max_time_window_seconds) {
-            return Err("STELLAR_TX_MAX_AGE_SECS must be between 1 and 86400");
+            return Err(format!(
+                "STELLAR_TX_MAX_AGE_SECS must be between 1 and {MAX_TIME_WINDOW_SECONDS}"
+            ));
         }
-        if !matches!(
-            fee_percentile,
-            10 | 20 | 30 | 40 | 50 | 60 | 70 | 80 | 90 | 95 | 99
-        ) {
-            return Err("STELLAR_FEE_PERCENTILE must be one of 10,20,30,40,50,60,70,80,90,95,99");
+        if !SUPPORTED_FEE_PERCENTILES.contains(&fee_percentile) {
+            let supported = SUPPORTED_FEE_PERCENTILES
+                .iter()
+                .map(u8::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
+            return Err(format!(
+                "STELLAR_FEE_PERCENTILE must be one of {supported}"
+            ));
         }
         if fee_ceiling_stroops < MIN_BASE_FEE_STROOPS {
-            return Err("STELLAR_FEE_CEILING_STROOPS must be at least 100");
+            return Err(format!(
+                "STELLAR_FEE_CEILING_STROOPS must be at least {MIN_BASE_FEE_STROOPS}"
+            ));
         }
         Ok(Self {
             max_time_window_seconds,
@@ -87,6 +96,13 @@ mod tests {
     #[test]
     fn accepts_supported_horizon_percentiles_and_valid_bounds() {
         assert!(SigningPolicy::new(60, 95, 500).is_ok());
+    }
+
+    #[test]
+    fn accepts_every_supported_fee_percentile() {
+        for percentile in SUPPORTED_FEE_PERCENTILES {
+            assert!(SigningPolicy::new(300, percentile, 500).is_ok());
+        }
     }
 
     #[test]

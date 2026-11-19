@@ -74,8 +74,13 @@ mod tests {
         "Forbidden",
         "NotFound",
         "Conflict",
-        "RateLimited",
+        "ConflictWith",
+        "Gone",
+        "TooManyRequests",
+        "StaleSequence",
         "Internal",
+        "GatewayTimeout",
+        "ServiceUnavailable",
     ];
 
     fn doc_path() -> std::path::PathBuf {

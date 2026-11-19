@@ -69,7 +69,12 @@ pub async fn add_trustline(
             match e {
                 WalletError::InvalidAssetCode => "asset_code must be 1-12 bytes",
                 WalletError::InvalidAddress => "asset_issuer must be a valid G... account",
-                _ => "limit_stroops must be >= 0",
+                WalletError::ReservedNativeAssetCode => {
+                    "asset_code must not be the native asset XLM"
+                }
+                WalletError::InvalidLimit => "limit_stroops must be >= 0",
+                // Any other variant is unrelated to this request; don't leak internals.
+                _ => "invalid trustline request",
             }
             .into(),
         )

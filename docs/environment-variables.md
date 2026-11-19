@@ -23,9 +23,9 @@ This document is the authoritative reference for every environment variable read
 | `JWT_SECRET_PREVIOUS` | Previous JWT signing secret, accepted during rotation so existing tokens remain valid. | none | optional | yes |
 | `JWT_ISSUER` | `iss` claim value written into and validated on JWTs. | `stellar-...` (server default) | optional | no |
 | `JWT_AUDIENCE` | `aud` claim value written into and validated on JWTs. | `stellar-...` (server default) | optional | no |
-| `ARGON2_MEMORY_KIB` | Argon2id memory cost in KiB used for password hashing. | `19456` | optional | no |
-| `ARGON2_ITERATIONS` | Argon2id iteration (time) cost used for password hashing. | `2` | optional | no |
-| `ARGON2_PARALLELISM` | Argon2id parallelism (lanes) used for password hashing. | `1` | optional | no |
+| `ARGON2_MEMORY_KIB` | Argon2id memory cost in KiB used for password hashing. Minimum `19456`; startup rejects lower values with an error naming this variable. | `19456` | optional | no |
+| `ARGON2_ITERATIONS` | Argon2id iteration (time) cost used for password hashing. Minimum `2`; startup rejects lower values with an error naming this variable. | `2` | optional | no |
+| `ARGON2_PARALLELISM` | Argon2id parallelism (lanes) used for password hashing. Minimum `1`; startup rejects lower values with an error naming this variable. | `1` | optional | no |
 | `BIND_ADDR` | Address and port the HTTP server listens on. | `0.0.0.0:8080` | optional | no |
 | `RUST_LOG` | `tracing`/`env_logger` filter directive controlling log verbosity. | `info` | optional | no |
 | `PUBLIC_APP_URL` | Public base URL of the web application, used to build links in emails and redirects. | none | optional | no |

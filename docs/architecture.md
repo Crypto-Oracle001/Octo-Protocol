@@ -154,7 +154,6 @@ ciphertext sealed under one context fails authentication under another.
 - A test in `octo-evm-core` asserts that a seed sealed with an `eip155` context **fails** to open
   with a `stellar` context.
 - Any new chain must define its own context string; reusing another chain's context is a bug.
-</｜｜DSML｜｜ parameter>
 
 ---
 

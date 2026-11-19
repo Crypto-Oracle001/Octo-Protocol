@@ -36,7 +36,7 @@ lint:
 deny:
     cargo deny check
 
-# Verify every environment variable read by the code is documented in docs/env-vars.md.
+# Verify every environment variable read by the code is documented in docs/environment-variables.md.
 check-env-docs:
     ./scripts/check-env-docs.sh
 
@@ -78,13 +78,15 @@ seed:
 test-integration:
     #!/usr/bin/env bash
     set -euo pipefail
+    BIND_ADDR="${BIND_ADDR:-0.0.0.0:8080}"
+    PORT="${BIND_ADDR##*:}"
     cargo build -p octo-server
     cargo run -p octo-server &
     SERVER_PID=$!
     trap 'kill $SERVER_PID 2>/dev/null || true' EXIT
-    echo "Waiting for octo-server to be ready..."
+    echo "Waiting for octo-server to be ready on port ${PORT}..."
     for i in $(seq 1 30); do
-        if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
+        if curl -sf "http://localhost:${PORT}/health" > /dev/null 2>&1; then
             echo "octo-server is ready."
             break
         fi

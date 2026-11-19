@@ -33,9 +33,10 @@
 //! # Concurrent-request race on refresh
 //!
 //! In-flight requests that carry T1 at the moment T1 is revoked may succeed or fail
-//! depending on timing: if `is_token_revoked` runs before the deny-list INSERT commits they
-//! succeed; after, they get 401. Clients should treat a mid-session 401 as a signal to
-//! re-authenticate. This is the standard deny-list tradeoff and is documented here explicitly.
+//! depending on timing: if the deny-list lookup (`is_session_valid`) runs before the INSERT
+//! commits they succeed; after, they get 401. Clients should treat a mid-session 401 as a
+//! signal to re-authenticate. This is the standard deny-list tradeoff and is documented here
+//! explicitly.
 //!
 //! # Security
 //! - Passwords are hashed with **argon2id** (PHC string, random salt).
@@ -1041,20 +1042,35 @@ pub(crate) fn initialize_dummy_password_hash() {
     let _ = dummy_password_hash();
 }
 
-fn configured_argon2() -> Result<Argon2<'static>, ApiError> {
-    let parse = |name: &str, default: u32| {
-        std::env::var(name)
-            .ok()
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(default)
+/// OWASP-recommended Argon2id floors. Configured values below these are rejected at startup.
+const ARGON2_MIN_MEMORY_KIB: u32 = 19 * 1024;
+const ARGON2_MIN_ITERATIONS: u32 = 2;
+const ARGON2_MIN_PARALLELISM: u32 = 1;
+
+/// Read an Argon2 cost parameter from the environment, enforcing its floor.
+///
+/// Returns an error naming the variable (never its neighbours) when the value is below the floor.
+fn argon2_param(name: &str, default: u32, minimum: u32) -> Result<u32, String> {
+    let value = match std::env::var(name) {
+        Ok(raw) => raw
+            .parse::<u32>()
+            .map_err(|_| format!("{name} must be a positive integer"))?,
+        Err(_) => default,
     };
-    let params = Params::new(
-        parse("ARGON2_MEMORY_KIB", 65_536),
-        parse("ARGON2_ITERATIONS", 3),
-        parse("ARGON2_PARALLELISM", 1),
-        None,
-    )
-    .map_err(|_| ApiError::Internal)?;
+    if value < minimum {
+        return Err(format!("{name} must be at least {minimum}, got {value}"));
+    }
+    Ok(value)
+}
+
+fn configured_argon2() -> Result<Argon2<'static>, ApiError> {
+    let memory = argon2_param("ARGON2_MEMORY_KIB", 65_536, ARGON2_MIN_MEMORY_KIB)
+        .map_err(|_| ApiError::Internal)?;
+    let iterations = argon2_param("ARGON2_ITERATIONS", 3, ARGON2_MIN_ITERATIONS)
+        .map_err(|_| ApiError::Internal)?;
+    let parallelism = argon2_param("ARGON2_PARALLELISM", 1, ARGON2_MIN_PARALLELISM)
+        .map_err(|_| ApiError::Internal)?;
+    let params = Params::new(memory, iterations, parallelism, None).map_err(|_| ApiError::Internal)?;
     Ok(Argon2::new(Algorithm::Argon2id, Version::V0x13, params))
 }
 
@@ -1159,19 +1175,33 @@ pub fn verify_token(secret: &[u8], token: &str) -> Option<Claims> {
     Some(claims)
 }
 
+/// Compute the HMAC-SHA256 of `data` under `secret`.
+///
+/// `new_from_slice` only fails for key types with a fixed size; HMAC accepts any key length, so
+/// the error is unreachable in practice — but it is mapped rather than unwrapped so a future
+/// change can't turn a request into a panic.
+fn hmac_sha256(secret: &[u8], data: &[u8]) -> Result<Vec<u8>, ApiError> {
+    let mut mac = <HmacSha256 as Mac>::new_from_slice(secret).map_err(|_| ApiError::Internal)?;
+    mac.update(data);
+    Ok(mac.finalize().into_bytes().to_vec())
+}
+
 pub(crate) fn sign_hs256(secret: &[u8], input: &[u8]) -> String {
-    let mut mac = <HmacSha256 as Mac>::new_from_slice(secret).expect("HMAC accepts any key length");
-    mac.update(input);
-    b64(&mac.finalize().into_bytes())
+    hmac_sha256(secret, input)
+        .map(|mac| b64(&mac))
+        .unwrap_or_default()
 }
 
 pub(crate) fn verify_hs256(secret: &[u8], input: &[u8], signature_b64: &str) -> bool {
     let Some(sig) = b64_decode(signature_b64) else {
         return false;
     };
-    let mut mac = <HmacSha256 as Mac>::new_from_slice(secret).expect("HMAC accepts any key length");
-    mac.update(input);
-    mac.verify_slice(&sig).is_ok()
+    let Ok(expected) = hmac_sha256(secret, input) else {
+        return false;
+    };
+    // Constant-time comparison, matching `Mac::verify_slice`.
+    use subtle::ConstantTimeEq;
+    expected.ct_eq(&sig).into()
 }
 
 pub(crate) fn now_secs() -> i64 {
@@ -1309,6 +1339,15 @@ pub async fn authenticate_session(
 /// Prefix that marks an octo API key (vs a dashboard login JWT).
 const API_KEY_PREFIX: &str = "octo_sk_";
 
+/// API key scope: read-only access to the key's wallet.
+pub const SCOPE_READ: &str = "read";
+/// API key scope: write access to the key's wallet.
+pub const SCOPE_WRITE: &str = "write";
+/// API key scope: sponsor access to the key's wallet.
+pub const SCOPE_SPONSOR: &str = "sponsor";
+/// Every scope an API key may be granted.
+pub const ALL_SCOPES: &[&str] = &[SCOPE_READ, SCOPE_WRITE, SCOPE_SPONSOR];
+
 /// Extract the raw bearer token (`octo_sk_…` or a JWT), if present.
 fn bearer(headers: &axum::http::HeaderMap) -> Option<&str> {
     headers
@@ -1343,7 +1382,7 @@ pub async fn authorize_wallet(
     state: &AppState,
     wallet_id: Uuid,
 ) -> Result<(), ApiError> {
-    authorize_wallet_scope(headers, state, wallet_id, "read").await
+    authorize_wallet_scope(headers, state, wallet_id, SCOPE_READ).await
 }
 
 pub async fn authorize_wallet_scope(
@@ -1738,5 +1777,14 @@ mod tests {
 
         let other_secret = b"different-secret-at-least-32-bytes-long!";
         assert!(verify_token(other_secret, &token).is_none());
+    }
+
+    #[test]
+    fn argon2_memory_floor_is_enforced() {
+        let below = ARGON2_MIN_MEMORY_KIB - 1;
+        let err = argon2_param("ARGON2_MEMORY_KIB", 65_536, ARGON2_MIN_MEMORY_KIB)
+            .expect_err("default is above the floor");
+        assert_eq!(err, "");
+        let _ = below;
     }
 }

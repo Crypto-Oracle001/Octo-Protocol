@@ -59,6 +59,7 @@ pub const ERROR_CODES: &[(&str, u16, &str)] = &[
     ("too_many_requests", 429, "A rate limit or budget would be exceeded."),
     ("internal_error", 500, "An internal error occurred; details are logged, never returned."),
     ("upstream_timeout", 504, "An upstream dependency (e.g. Horizon) did not answer in time."),
+    ("service_unavailable", 503, "A dependency needed to make a safe decision is unavailable."),
 ];
 
 /// Code for an error raised outside [`ApiError`] (extractor rejections, unknown routes, body limit).
@@ -73,6 +74,7 @@ pub fn code_for_status(status: StatusCode) -> &'static str {
         413 => "payload_too_large",
         415 => "unsupported_media_type",
         429 => "too_many_requests",
+        503 => "service_unavailable",
         504 => "upstream_timeout",
         s if s >= 500 => "internal_error",
         _ => "bad_request",
@@ -105,6 +107,7 @@ impl ApiError {
             ApiError::StaleSequence(_) => "stale_sequence",
             ApiError::Internal => "internal_error",
             ApiError::GatewayTimeout(_) => "upstream_timeout",
+            ApiError::ServiceUnavailable(_) => "service_unavailable",
         }
     }
 
@@ -135,6 +138,15 @@ impl IntoResponse for ApiError {
         let (status, message) = self.parts();
         error_response(status, self.code(), message)
     }
+}
+
+/// Log the underlying error and map it to an opaque [`ApiError::Internal`].
+///
+/// Only the error value is logged — never request bodies, tokens, addresses, webhook URLs or
+/// secrets. The client response stays the generic `internal server error`.
+pub(crate) fn internal<E: std::fmt::Debug>(e: E) -> ApiError {
+    tracing::error!(error = ?e, "internal error");
+    ApiError::Internal
 }
 
 /// Map store errors to API errors without leaking DB internals.
@@ -188,6 +200,15 @@ impl From<octo_wallet_core::WalletError> for ApiError {
     }
 }
 
+/// Log an internal failure (type/message only) and map it to the opaque [`ApiError::Internal`].
+///
+/// Use this instead of `map_err(|_| ApiError::Internal)` so a 500 leaves a trace in the logs.
+/// Never pass request bodies, tokens or addresses here — only the underlying error.
+pub fn internal(e: impl std::fmt::Debug) -> ApiError {
+    tracing::error!(error = ?e, "internal error");
+    ApiError::Internal
+}
+
 /// Wrap any serializable value in the standard success envelope with a status code.
 #[derive(Serialize)]
 pub struct Envelope<T: Serialize> {
@@ -223,5 +244,26 @@ impl Envelope<Option<()>> {
     /// middleware, so they match every other error response.
     pub fn error(status: StatusCode, message: String) -> Response {
         error_response(status, code_for_status(status), message)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn service_unavailable_has_stable_code() {
+        assert_eq!(
+            ApiError::ServiceUnavailable("x".into()).code(),
+            "service_unavailable"
+        );
+    }
+
+    #[test]
+    fn code_for_status_maps_service_unavailable() {
+        assert_eq!(
+            code_for_status(StatusCode::SERVICE_UNAVAILABLE),
+            "service_unavailable"
+        );
     }
 }

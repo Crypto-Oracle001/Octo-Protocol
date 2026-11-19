@@ -90,7 +90,7 @@ async fn preflight(state: &AppState, wallet_id: Uuid, req: SponsorRequest) -> Ap
         .store()
         .get_gas_sponsorship_config(wallet_id)
         .await
-        .map_err(|_| ApiError::Internal)?;
+        .map_err(crate::error::internal)?;
     let config = match config {
         Some(c) if c.enabled => c,
         _ => {
@@ -287,9 +287,9 @@ pub async fn sponsor(
     let scheme = wallet
         .sealed_scheme
         .unwrap_or(octo_crypto::SCHEME_V1 as i16);
-    let scheme_byte = u8::try_from(scheme).map_err(|_| ApiError::Internal)?;
+    let scheme_byte = u8::try_from(scheme).map_err(crate::error::internal)?;
     let sealed = SealedSeed::from_parts_with_scheme(ciphertext.clone(), nonce, salt, scheme_byte)
-        .map_err(|_| ApiError::Internal)?;
+        .map_err(crate::error::internal)?;
     let fb = FeeBumpRequest {
         inner_xdr: &inner_xdr,
         max_base_fee_stroops: max_fee,

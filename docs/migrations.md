@@ -86,6 +86,19 @@ CI runs a migration linter (`ci/lint-migrations.sh`) on every PR that touches `c
 
 `CREATE INDEX CONCURRENTLY` and `DROP INDEX CONCURRENTLY` are allowed and are the preferred form for any table that may hold production traffic.
 
+### Hot tables guarded by `alter-type`
+
+`ALTER TYPE` is flagged on every table, but the linter additionally tracks the high-volume tables below (`LARGE_TABLES` in `scripts/lint-migrations.sh`) so a rewrite of any of them is called out explicitly. These tables hold production traffic that grows with every wallet, transaction and webhook, so a column type change rewrites the whole table under `ACCESS EXCLUSIVE` and is a full outage rather than a brief lock.
+
+| Table | Why it is hot |
+|---|---|
+| `transactions` | One row per on-chain operation across all wallets; the largest ledger table. |
+| `audit_logs` | Append-only trail written on every dashboard action; grows unbounded. |
+| `webhook_deliveries` | One row per delivery attempt per endpoint; high write rate. |
+| `sessions` | One row per active login; rewritten on every session refresh. |
+
+The list must stay in sync with `crates/store/migrations/`: when a new high-volume table is added, add it to `LARGE_TABLES` and to this table in the same PR. If a type change on one of these tables is genuinely required, use the `-- migration-lint: allow <reason>` override and record it in *Existing exceptions* below.
+
 ### Annotated overrides
 
 When a flagged statement is genuinely required (e.g. a baseline migration that creates a brand-new table, or a deliberate data-destroying cleanup), annotate it with a comment on the line immediately above the statement:

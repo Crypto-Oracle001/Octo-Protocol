@@ -15,8 +15,8 @@ pub const CUSTOMER_REF_MAX: usize = 128;
 /// True for invisible or direction-changing characters that can make one string render as another.
 fn is_spoofing_char(c: char) -> bool {
     matches!(c,
-        '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2064}'
-        | '\u{2066}'..='\u{2069}' | '\u{FEFF}')
+        '\u{00AD}' | '\u{061C}' | '\u{180E}' | '\u{200B}'..='\u{200F}' | '\u{2028}'..='\u{202E}'
+        | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}')
 }
 
 /// Trim `value`; empty becomes `None`, oversized or control/spoofing characters are a 400.
@@ -65,7 +65,20 @@ mod tests {
 
     #[test]
     fn rejects_control_and_spoofing_characters() {
-        for bad in ["a\nb", "a\u{0}b", "a\tb", "a\u{1b}[31mb", "a\u{202E}b", "a\u{200B}b", "\u{FEFF}a"] {
+        for bad in [
+            "a\nb",
+            "a\u{0}b",
+            "a\tb",
+            "a\u{1b}[31mb",
+            "a\u{202E}b",
+            "a\u{200B}b",
+            "\u{FEFF}a",
+            "a\u{00AD}b",
+            "a\u{061C}b",
+            "a\u{180E}b",
+            "a\u{2028}b",
+            "a\u{2029}b",
+        ] {
             assert!(clean_text("label", bad, 64).is_err(), "{bad:?} must be rejected");
         }
     }

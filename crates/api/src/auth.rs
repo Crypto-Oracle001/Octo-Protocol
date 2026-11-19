@@ -1159,19 +1159,33 @@ pub fn verify_token(secret: &[u8], token: &str) -> Option<Claims> {
     Some(claims)
 }
 
+/// Compute the HMAC-SHA256 of `data` under `secret`.
+///
+/// `new_from_slice` only fails for key types with a fixed size; HMAC accepts any key length, so
+/// the error is unreachable in practice — but it is mapped rather than unwrapped so a future
+/// change can't turn a request into a panic.
+fn hmac_sha256(secret: &[u8], data: &[u8]) -> Result<Vec<u8>, ApiError> {
+    let mut mac = <HmacSha256 as Mac>::new_from_slice(secret).map_err(|_| ApiError::Internal)?;
+    mac.update(data);
+    Ok(mac.finalize().into_bytes().to_vec())
+}
+
 pub(crate) fn sign_hs256(secret: &[u8], input: &[u8]) -> String {
-    let mut mac = <HmacSha256 as Mac>::new_from_slice(secret).expect("HMAC accepts any key length");
-    mac.update(input);
-    b64(&mac.finalize().into_bytes())
+    hmac_sha256(secret, input)
+        .map(|mac| b64(&mac))
+        .unwrap_or_default()
 }
 
 pub(crate) fn verify_hs256(secret: &[u8], input: &[u8], signature_b64: &str) -> bool {
     let Some(sig) = b64_decode(signature_b64) else {
         return false;
     };
-    let mut mac = <HmacSha256 as Mac>::new_from_slice(secret).expect("HMAC accepts any key length");
-    mac.update(input);
-    mac.verify_slice(&sig).is_ok()
+    let Ok(expected) = hmac_sha256(secret, input) else {
+        return false;
+    };
+    // Constant-time comparison, matching `Mac::verify_slice`.
+    use subtle::ConstantTimeEq;
+    expected.ct_eq(&sig).into()
 }
 
 pub(crate) fn now_secs() -> i64 {

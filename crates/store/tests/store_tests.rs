@@ -886,6 +886,28 @@ async fn duplicate_inner_tx_hash_is_conflict() {
 }
 
 #[tokio::test]
+async fn create_api_key_duplicate_for_wallet_is_conflict() {
+    let Some(store) = store().await else { return };
+    let wallet_id = fresh_wallet(&store).await;
+    let scopes = vec!["read".to_string()];
+
+    store
+        .create_api_key(wallet_id, "octo_first", "hash-first", &scopes, None)
+        .await
+        .expect("first api key for a wallet must be created");
+
+    // A wallet may hold only one API key: a second insert must surface as a conflict (409), not a
+    // generic database error (500).
+    let second = store
+        .create_api_key(wallet_id, "octo_second", "hash-second", &scopes, None)
+        .await;
+    assert!(
+        matches!(second, Err(StoreError::Conflict)),
+        "duplicate api key insert must conflict, got: {second:?}"
+    );
+}
+
+#[tokio::test]
 async fn cursor_roundtrip() {
     let Some(store) = store().await else { return };
     let wallet_id = fresh_wallet(&store).await;

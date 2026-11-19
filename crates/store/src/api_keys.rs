@@ -57,7 +57,7 @@ impl Store {
         .bind(expires_at)
         .fetch_one(&self.pool)
         .await
-        .map_err(StoreError::Database)
+        .map_err(StoreError::from_sqlx_conflict)
     }
 
     /// Get the wallet's API key metadata (prefix only — never the secret), if one exists.

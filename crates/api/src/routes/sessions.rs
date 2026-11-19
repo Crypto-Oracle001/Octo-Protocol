@@ -5,7 +5,7 @@
 //! Revocation takes effect on the revoked token's very next request (see `auth::authenticate`).
 
 use crate::auth::{continue_session, require_login_session};
-use crate::error::{ApiError, ApiResult, Envelope};
+use crate::error::{internal, ApiError, ApiResult, Envelope};
 use crate::state::AppState;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
@@ -43,7 +43,7 @@ pub async fn list_sessions(
         .store()
         .list_active_sessions(caller.user_id)
         .await
-        .map_err(|_| ApiError::Internal)?;
+        .map_err(internal)?;
     let views = rows
         .into_iter()
         .map(|s| SessionView {
@@ -69,7 +69,7 @@ pub async fn revoke_session(
         .store()
         .revoke_session(caller.user_id, session_id)
         .await
-        .map_err(|_| ApiError::Internal)?;
+        .map_err(internal)?;
     // Unknown, already revoked, and someone else's all look the same.
     if !revoked {
         return Err(ApiError::NotFound);
@@ -97,7 +97,7 @@ pub async fn revoke_other_sessions(
         .store()
         .revoke_other_sessions(caller.user_id, caller.session_id)
         .await
-        .map_err(|_| ApiError::Internal)?;
+        .map_err(internal)?;
     // The epoch bump invalidated the presented token too, so hand back its replacement.
     let token = continue_session(&state, &caller, epoch, &headers).await?;
     crate::audit::record(

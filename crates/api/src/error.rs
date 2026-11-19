@@ -140,11 +140,11 @@ impl IntoResponse for ApiError {
     }
 }
 
-/// Log a swallowed internal error and map it to the opaque [`ApiError::Internal`].
+/// Log the cause of an internal failure and map it to the opaque [`ApiError::Internal`].
 ///
-/// Only the error's `Debug` representation is logged — never request bodies, tokens or
+/// Only the error's `Debug` representation is logged — never request bodies, tokens, API keys or
 /// addresses — and the client response stays the generic "internal server error".
-pub fn internal<E: std::fmt::Debug>(e: E) -> ApiError {
+pub(crate) fn internal(e: impl std::fmt::Debug) -> ApiError {
     tracing::error!(error = ?e, "internal error");
     ApiError::Internal
 }

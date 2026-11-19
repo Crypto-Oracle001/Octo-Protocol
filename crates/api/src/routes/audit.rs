@@ -1,7 +1,7 @@
 //! Audit log listing.
 
 use crate::auth::authenticate;
-use crate::error::{ApiError, ApiResult, Envelope};
+use crate::error::{internal, ApiError, ApiResult, Envelope};
 use crate::state::AppState;
 use axum::extract::{Query, State};
 use axum::http::HeaderMap;
@@ -42,6 +42,6 @@ pub async fn list_audit_logs(
         .store()
         .list_audit_logs(user_id, category.as_deref(), search.as_deref(), 200)
         .await
-        .map_err(|_| ApiError::Internal)?;
+        .map_err(internal)?;
     Ok(Envelope::ok(rows))
 }

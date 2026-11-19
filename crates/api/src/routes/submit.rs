@@ -6,7 +6,7 @@
 //! of Octo's relay + bookkeeping.
 
 use crate::auth::{authorize_wallet, authorize_wallet_scope, require_login};
-use crate::error::{ApiError, ApiResult, Envelope};
+use crate::error::{internal, ApiError, ApiResult, Envelope};
 use crate::json::parse_optional;
 use crate::state::AppState;
 use crate::submit_validation::validate_signed_xdr;
@@ -128,7 +128,7 @@ pub async fn relay_signed_transaction(
             .store()
             .get_withdrawal_allowlist_config(wallet_id)
             .await
-            .map_err(|_| ApiError::Internal)?
+            .map_err(internal)?
             .is_some_and(|c| c.enabled);
         if allowlist_enabled {
             let base_destination = octo_wallet_core::to_base_account(&p.destination)
@@ -137,7 +137,7 @@ pub async fn relay_signed_transaction(
                 .store()
                 .is_address_whitelisted(wallet_id, &base_destination)
                 .await
-                .map_err(|_| ApiError::Internal)?;
+                .map_err(internal)?;
             if !ok {
                 return Err(ApiError::Forbidden(
                     "destination is not on this wallet's withdrawal allowlist".into(),
@@ -285,7 +285,7 @@ pub async fn withdraw_request_otp(
         .store()
         .get_user(user_id)
         .await
-        .map_err(|_| ApiError::Internal)?
+        .map_err(internal)?
         .ok_or(ApiError::NotFound)?;
 
     let req: WithdrawOtpRequest = parse_optional(&body)?;
@@ -310,12 +310,12 @@ pub async fn withdraw_request_otp(
             chrono::Duration::minutes(WITHDRAW_OTP_TTL_MINUTES),
         )
         .await
-        .map_err(|_| ApiError::Internal)?;
+        .map_err(internal)?;
     state
         .email()
         .send_otp(&user.email, "withdrawal", &code)
         .await
-        .map_err(|_| ApiError::Internal)?;
+        .map_err(internal)?;
 
     Ok(Envelope::ok(WithdrawOtpResponse { sent: true }))
 }
@@ -340,7 +340,7 @@ pub async fn withdraw_confirm(
         .store()
         .get_user(user_id)
         .await
-        .map_err(|_| ApiError::Internal)?
+        .map_err(internal)?
         .ok_or(ApiError::NotFound)?;
 
     let req: WithdrawConfirmRequest = parse_optional(&body)?;
@@ -603,5 +603,12 @@ mod tests {
         assert!(!explain_code("op_low_reserve").is_empty());
         assert!(!explain_code("tx_bad_seq").is_empty());
         assert!(!explain_code("unknown_code").contains("unknown_code"));
+    }
+
+    #[test]
+    fn internal_helper_maps_store_errors_to_opaque_internal() {
+        let err = internal(octo_store::StoreError::NotFound);
+        assert!(matches!(err, ApiError::Internal));
+        assert_eq!(err.to_string(), ApiError::Internal.to_string());
     }
 }

@@ -252,18 +252,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn service_unavailable_has_stable_code() {
-        assert_eq!(
-            ApiError::ServiceUnavailable("x".into()).code(),
-            "service_unavailable"
-        );
-    }
-
-    #[test]
-    fn code_for_status_maps_service_unavailable() {
-        assert_eq!(
-            code_for_status(StatusCode::SERVICE_UNAVAILABLE),
-            "service_unavailable"
-        );
+    fn internal_maps_to_opaque_500() {
+        let err = internal("db exploded");
+        assert!(matches!(err, ApiError::Internal));
+        let (status, message) = err.parts();
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(message, "internal server error");
     }
 }

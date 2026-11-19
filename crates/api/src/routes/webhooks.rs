@@ -347,7 +347,7 @@ pub async fn list_webhooks(
         .store()
         .wallet_webhook_delivery_health(wallet_id)
         .await
-        .map_err(|_| ApiError::Internal)?;
+        .map_err(crate::error::internal)?;
     let views: Vec<WebhookView> = eps
         .into_iter()
         .map(|ep| {

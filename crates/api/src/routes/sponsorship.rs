@@ -58,7 +58,7 @@ pub async fn get_config(
         .store()
         .sum_sponsored_fees_today(wallet_id)
         .await
-        .map_err(|_| ApiError::Internal)?;
+        .map_err(crate::error::internal)?;
 
     let view = match config {
         Some(c) => SponsorshipConfigView {
@@ -156,7 +156,7 @@ pub async fn put_config(
         .store()
         .sum_sponsored_fees_today(wallet_id)
         .await
-        .map_err(|_| ApiError::Internal)?;
+        .map_err(crate::error::internal)?;
 
     let wallet = state.store().get_wallet(wallet_id).await?;
     if let Some(uid) = wallet.user_id {

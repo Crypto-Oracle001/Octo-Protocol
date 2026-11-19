@@ -339,6 +339,7 @@ snapshot test (`crates/api/tests/snapshots/error_codes.snap`).
 | `unsupported_media_type` | 415 | The request body has an unsupported Content-Type. |
 | `too_many_requests` | 429 | A rate limit or budget would be exceeded. |
 | `internal_error` | 500 | An internal error occurred; details are logged, never returned. |
+| `service_unavailable` | 503 | A dependency needed to make a safe decision is unavailable. |
 | `upstream_timeout` | 504 | An upstream dependency (e.g. Horizon) did not answer in time. |
 
 See also [errors.md](errors.md) for the per-code remedies.

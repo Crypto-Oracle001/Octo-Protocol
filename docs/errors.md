@@ -23,6 +23,7 @@ status, meaning, and the remedy an integrator should apply.
 | `StaleSequence` | 400 Bad Request | The supplied sequence number is stale or out of order relative to the current state. | Re-fetch the latest state/sequence and retry with the current value. |
 | `Internal` | 500 Internal Server Error | An unexpected server-side failure occurred. | Retry with backoff; if it persists, contact support with the request ID. |
 | `GatewayTimeout` | 504 Gateway Timeout | An upstream dependency did not respond in time. | Retry with backoff; the operation may or may not have completed, so reconcile state first where relevant. |
+| `ServiceUnavailable` | 503 Service Unavailable | A dependency needed to make a safe decision (e.g. Horizon) is unavailable. | Retry with backoff; no state was changed. |
 
 ## Error mappings
 
@@ -42,10 +43,10 @@ implementations. The resulting HTTP status is shown below.
 
 | `WalletError` | Resulting `ApiError` | HTTP status |
 | --- | --- | --- |
-| `WalletArchived` | `Forbidden` | 403 Forbidden |
-| `BudgetExceeded` | `TooManyRequests` | 429 Too Many Requests |
-| `StaleSequence` | `BadRequest` | 400 Bad Request |
-| Crypto failures | `Internal` | 500 Internal Server Error |
+| `InvalidMnemonic`, `InvalidChecksum`, `InvalidAddress`, `InvalidAssetCode`, `InvalidAmount`, `InvalidDerivationPath`, `InvalidXdr`, `InvalidSignature`, `InvalidSeedLength`, `WeakSeed`, `MnemonicAccountMismatch` | `BadRequest` | 400 Bad Request |
+| `ReservedNativeAssetCode` | `BadRequest` | 400 Bad Request |
+| `StaleSequence` | `StaleSequence` | 400 Bad Request |
+| `KeyDerivation`, `Signing`, `SeedDecryption` | `Internal` | 500 Internal Server Error |
 
 ## Request body size limit
 

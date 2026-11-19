@@ -1,7 +1,10 @@
 [package]
 name = "octo-seed"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "Idempotent seed binary producing demo users, wallets and deposits for local development"
 publish = false
 

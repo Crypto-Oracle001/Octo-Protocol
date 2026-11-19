@@ -45,7 +45,15 @@ A Cargo workspace; all secret-handling is isolated in `wallet-core` and zeroized
 | [`crates/webhooks`](crates/webhooks) | HMAC-SHA256 signed outbound webhooks + delivery log |
 | [`crates/ingest`](crates/ingest) | Horizon payment streaming + durable cursor → deposit detection |
 | [`crates/api`](crates/api) | axum REST API |
+| [`crates/email`](crates/email) | Transactional email delivery for notifications |
+| [`crates/resilience`](crates/resilience) | Retry, backoff and circuit-breaker primitives |
+| [`crates/metrics`](crates/metrics) | Prometheus metrics registry and HTTP exposition |
+| [`crates/evm-core`](crates/evm-core) | EVM chain primitives and address handling |
+| [`crates/evm-rpc`](crates/evm-rpc) | JSON-RPC client for EVM nodes |
+| [`crates/horizon-mock`](crates/horizon-mock) | Scripted mock Horizon server for offline tests |
 | [`bin/server`](bin/server) | composes `api` + `ingest` into one service |
+| [`bin/seed`](bin/seed) | loads idempotent demo data into the local database |
+| [`bin/horizon-mock`](bin/horizon-mock) | runs the mock Horizon server standalone |
 
 See [docs/architecture.md](docs/architecture.md).
 The persisted encryption compatibility contract is documented in

@@ -83,8 +83,15 @@ CI runs a migration linter (`ci/lint-migrations.sh`) on every PR that touches `c
 | `drop-index` | `DROP INDEX ...` | Can regress hot query paths; also takes an `ACCESS EXCLUSIVE` lock on the table. |
 | `create-index` | `CREATE INDEX ...` (without `CONCURRENTLY`) | Takes a write-blocking `SHARE` lock for the duration of the build. |
 | `alter-type` | `ALTER TABLE ... ALTER COLUMN ... TYPE ...` | Rewrites the whole table under `ACCESS EXCLUSIVE`; on large tables this is a full outage. |
+| `duplicate-prefix` | Two or more migration files sharing the same numeric version prefix (e.g. `0032_*.sql`) | Makes apply order ambiguous: the runner sorts by filename, so the relative order of same-prefix files is alphabetical accident rather than intent. |
 
 `CREATE INDEX CONCURRENTLY` and `DROP INDEX CONCURRENTLY` are allowed and are the preferred form for any table that may hold production traffic.
+
+### Duplicate version prefixes
+
+Every migration file must have a unique numeric version prefix. The linter lists any prefix shared by more than one file and fails the build, so a new duplicate cannot be merged.
+
+Already-merged duplicates are grandfathered via a small allowlist in the linter (`0021`, `0026`, `0032`). These are historical and must not be extended: a new migration must pick the next unused prefix. Known gap: `0023` and `0024` are missing from the sequence, so the next migration should use `0035` (or the next free number) rather than backfilling them.
 
 ### Annotated overrides
 

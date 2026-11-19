@@ -152,3 +152,30 @@ async fn main() -> Result<()> {
     info!("seed complete");
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    /// Serializes tests that mutate the process-wide `NETWORK` env var.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn guard_refuses_mainnet() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("NETWORK", "mainnet");
+        let result = guard_against_mainnet();
+        std::env::remove_var("NETWORK");
+        assert!(result.is_err(), "guard must refuse NETWORK=mainnet");
+    }
+
+    #[test]
+    fn guard_allows_testnet() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("NETWORK", "testnet");
+        let result = guard_against_mainnet();
+        std::env::remove_var("NETWORK");
+        assert!(result.is_ok(), "guard must allow NETWORK=testnet");
+    }
+}

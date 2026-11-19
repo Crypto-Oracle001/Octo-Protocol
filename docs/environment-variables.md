@@ -23,9 +23,9 @@ This document is the authoritative reference for every environment variable read
 | `JWT_SECRET_PREVIOUS` | Previous JWT signing secret, accepted during rotation so existing tokens remain valid. | none | optional | yes |
 | `JWT_ISSUER` | `iss` claim value written into and validated on JWTs. | `stellar-...` (server default) | optional | no |
 | `JWT_AUDIENCE` | `aud` claim value written into and validated on JWTs. | `stellar-...` (server default) | optional | no |
-| `ARGON2_MEMORY_KIB` | Argon2id memory cost in KiB used for password hashing. | `19456` | optional | no |
-| `ARGON2_ITERATIONS` | Argon2id iteration (time) cost used for password hashing. | `2` | optional | no |
-| `ARGON2_PARALLELISM` | Argon2id parallelism (lanes) used for password hashing. | `1` | optional | no |
+| `ARGON2_MEMORY_KIB` | Argon2id memory cost in KiB used for password hashing. Must be a valid integer when set; malformed values abort startup. | `19456` | optional | no |
+| `ARGON2_ITERATIONS` | Argon2id iteration (time) cost used for password hashing. Must be a valid integer when set; malformed values abort startup. | `2` | optional | no |
+| `ARGON2_PARALLELISM` | Argon2id parallelism (lanes) used for password hashing. Must be a valid integer when set; malformed values abort startup. | `1` | optional | no |
 | `BIND_ADDR` | Address and port the HTTP server listens on. | `0.0.0.0:8080` | optional | no |
 | `RUST_LOG` | `tracing`/`env_logger` filter directive controlling log verbosity. | `info` | optional | no |
 | `PUBLIC_APP_URL` | Public base URL of the web application, used to build links in emails and redirects. | none | optional | no |
@@ -44,6 +44,10 @@ This document is the authoritative reference for every environment variable read
 - **always** — the server refuses to start without a valid value.
 - **mainnet** — required only when `NETWORK=mainnet`; the mainnet startup guard enforces it.
 - **optional** — has a default or is only needed for the corresponding feature (e.g. email, CORS).
+
+### Argon2 tuning variables
+
+`ARGON2_MEMORY_KIB`, `ARGON2_ITERATIONS` and `ARGON2_PARALLELISM` are parsed once at startup. When a variable is unset the documented default applies; when it is set it must be a valid integer, otherwise the server refuses to start with an error naming the offending variable. The parsed values are shared by password hashing and the password-hash upgrade check, so a misconfiguration can never be silently replaced by a default.
 
 ### Secret column values
 

@@ -42,6 +42,14 @@ LARGE_TABLES=(
 # Annotation that opts a file out of linting.
 ALLOW_ANNOTATION_RE='--[[:space:]]*migration-lint:[[:space:]]*allow[[:space:]]+[^[:space:]]'
 
+# Numeric version prefixes already shared by multiple merged migrations.
+# New duplicates must be resolved instead of added here.
+ALLOWED_DUPLICATE_PREFIXES=(
+  "0021"
+  "0026"
+  "0032"
+)
+
 usage() {
   echo "Usage: $0 [file ...]" >&2
   echo "  Lints SQL migrations for destructive or locking statements." >&2
@@ -153,6 +161,48 @@ echo "Linting ${#FILES[@]} migration file(s)..."
 for f in "${FILES[@]}"; do
   lint_file "$f"
 done
+
+# Rule: duplicate numeric version prefixes across migrations.
+check_duplicate_prefixes() {
+  local -A prefix_files=()
+  local f base prefix
+
+  for f in "${FILES[@]}"; do
+    base="$(basename "$f")"
+    if [[ "$base" =~ ^([0-9]+) ]]; then
+      prefix="${BASH_REMATCH[1]}"
+      prefix_files["$prefix"]+="${base}"$'\n'
+    fi
+  done
+
+  local allowed p
+  for p in "${!prefix_files[@]}"; do
+    local count
+    count="$(printf '%s' "${prefix_files[$p]}" | grep -c .)"
+    if [[ $count -le 1 ]]; then
+      continue
+    fi
+
+    allowed=0
+    for a in "${ALLOWED_DUPLICATE_PREFIXES[@]}"; do
+      if [[ "$a" == "$p" ]]; then
+        allowed=1
+        break
+      fi
+    done
+    if [[ $allowed -eq 1 ]]; then
+      continue
+    fi
+
+    echo "  [duplicate-prefix] version prefix ${p} is shared by ${count} migrations:" >&2
+    while IFS= read -r base; do
+      [[ -n "$base" ]] && echo "    ${base}" >&2
+    done <<< "${prefix_files[$p]}"
+    violations=$((violations + 1))
+  done
+}
+
+check_duplicate_prefixes
 
 if [[ $violations -gt 0 ]]; then
   echo "" >&2

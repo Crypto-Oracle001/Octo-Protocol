@@ -83,21 +83,15 @@ CI runs a migration linter (`scripts/lint-migrations.sh`) on every PR that touch
 | `drop-index` | `DROP INDEX ...` | Can regress hot query paths; also takes an `ACCESS EXCLUSIVE` lock on the table. |
 | `create-index` | `CREATE INDEX ...` (without `CONCURRENTLY`) | Takes a write-blocking `SHARE` lock for the duration of the build. |
 | `alter-type` | `ALTER TABLE ... ALTER COLUMN ... TYPE ...` | Rewrites the whole table under `ACCESS EXCLUSIVE`; on large tables this is a full outage. |
+| `duplicate-prefix` | Two or more migration files sharing the same numeric version prefix (e.g. `0032_*.sql`) | Makes apply order ambiguous: the runner sorts by filename, so the relative order of same-prefix files is alphabetical accident rather than intent. |
 
 `CREATE INDEX CONCURRENTLY` and `DROP INDEX CONCURRENTLY` are allowed and are the preferred form for any table that may hold production traffic.
 
-### Hot tables guarded by `alter-type`
+### Duplicate version prefixes
 
-`ALTER TYPE` is flagged on every table, but the linter additionally tracks the high-volume tables below (`LARGE_TABLES` in `scripts/lint-migrations.sh`) so a rewrite of any of them is called out explicitly. These tables hold production traffic that grows with every wallet, transaction and webhook, so a column type change rewrites the whole table under `ACCESS EXCLUSIVE` and is a full outage rather than a brief lock.
+Every migration file must have a unique numeric version prefix. The linter lists any prefix shared by more than one file and fails the build, so a new duplicate cannot be merged.
 
-| Table | Why it is hot |
-|---|---|
-| `transactions` | One row per on-chain operation across all wallets; the largest ledger table. |
-| `audit_logs` | Append-only trail written on every dashboard action; grows unbounded. |
-| `webhook_deliveries` | One row per delivery attempt per endpoint; high write rate. |
-| `sessions` | One row per active login; rewritten on every session refresh. |
-
-The list must stay in sync with `crates/store/migrations/`: when a new high-volume table is added, add it to `LARGE_TABLES` and to this table in the same PR. If a type change on one of these tables is genuinely required, use the `-- migration-lint: allow <reason>` override and record it in *Existing exceptions* below.
+Already-merged duplicates are grandfathered via a small allowlist in the linter (`0021`, `0026`, `0032`). These are historical and must not be extended: a new migration must pick the next unused prefix. Known gap: `0023` and `0024` are missing from the sequence, so the next migration should use `0035` (or the next free number) rather than backfilling them.
 
 ### Annotated overrides
 

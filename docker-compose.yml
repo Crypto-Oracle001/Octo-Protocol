@@ -65,7 +65,7 @@ services:
     command: ["seed"]
     environment:
       DATABASE_URL: postgres://octo:octo@db:5432/octo
-      STELLAR_NETWORK: testnet
+      NETWORK: testnet
       HORIZON_URL: http://horizon-mock:8000
       APP_ENV: local
     depends_on:

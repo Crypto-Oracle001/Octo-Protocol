@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- API: `service_unavailable` (503) is now part of the public error catalogue in `ERROR_CODES`,
+  `docs/api.md` and the `ErrorResponse.code` enum in `docs/openapi.yaml` (#608).
+- Docker: the builder image's default `RUST_VERSION` is aligned with the pinned `1.84.1`
+  toolchain in `rust-toolchain.toml` (#605).
 - `octo-server --check-config`: validates the environment, the mainnet guard, database
   connectivity and pending migrations, prints a redacted summary and exits non-zero on any
   failure (#469). Also adds the `Store::ping` the readiness probe already called.

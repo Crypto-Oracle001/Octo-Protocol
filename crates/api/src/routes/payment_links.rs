@@ -111,7 +111,7 @@ pub async fn create_payment_link(
     {
         IdempotencyClaim::Claimed => match create_link(&state, wallet_id, &body).await {
             Ok(view) => {
-                let response = serde_json::to_value(&view).map_err(|_| ApiError::Internal)?;
+                let response = serde_json::to_value(&view).map_err(crate::error::internal)?;
                 // On failure the claim stays in progress: retries get 409, never a duplicate.
                 if let Err(e) = store
                     .complete_idempotency_key(wallet_id, scope, &key, 201, &response)

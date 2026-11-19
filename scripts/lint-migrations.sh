@@ -29,13 +29,14 @@ MIGRATIONS_DIR="${REPO_ROOT}/crates/store/migrations"
 DOCS_REF="docs/migrations.md"
 
 # Tables considered "large" / hot. ALTER TYPE on these requires an override.
+# Keep in sync with the high-volume tables documented in docs/migrations.md.
 LARGE_TABLES=(
-  "events"
-  "spans"
-  "logs"
-  "metrics"
+  "transactions"
+  "audit_logs"
+  "webhook_deliveries"
   "sessions"
-  "traces"
+  "payment_link_payments"
+  "idempotency_keys"
 )
 
 # Annotation that opts a file out of linting.

@@ -36,26 +36,17 @@ services:
     tmpfs:
       - /tmp
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://localhost:8080/health || exit 1"]
+      test: ["CMD", "/usr/local/bin/octo-server", "healthcheck", "--url", "http://127.0.0.1:8080/health"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
 
-  # Optional mock Horizon — `docker compose --profile mock up` — points HORIZON_URL at it.
-  mock-horizon:
-    image: stoplight/prism:5
-    container_name: octo-mock-horizon
-    command: mock -h 0.0.0.0 -p 8000 /tmp/horizon.yml
-    volumes:
-      - ./mock/horizon.yml:/tmp/horizon.yml:ro
-    ports:
-      - "8000:8000"
-    profiles: ["mock"]
-
+  # Offline Horizon mocking is provided by the `horizon-mock` crate (see the horizon-mock service below).
   # Optional DB UI — `docker compose up adminer` — http://localhost:8081
+  # Tool image pins are bumped by the maintainers on release.
   adminer:
-    image: adminer:latest
+    image: adminer:4.8.1
     container_name: octo-adminer
     ports:
       - "8081:8080"

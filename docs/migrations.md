@@ -71,7 +71,7 @@ This document serves as the single changelog-style decision index tracking every
 
 ## Migration Lint Rules
 
-CI runs a migration linter (`ci/lint-migrations.sh`) on every PR that touches `crates/store/migrations/`. The linter scans each migration file for statements that can lock a hot table or destroy data, and fails the build unless the statement is either safe or explicitly annotated.
+CI runs a migration linter (`scripts/lint-migrations.sh`) on every PR that touches `crates/store/migrations/`. The linter scans each migration file for statements that can lock a hot table or destroy data, and fails the build unless the statement is either safe or explicitly annotated. Run it locally with `just lint-migrations`.
 
 ### Flagged statements
 

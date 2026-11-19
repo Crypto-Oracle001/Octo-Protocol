@@ -1383,6 +1383,23 @@ pub async fn authorize_wallet_scope(
     Ok(())
 }
 
+/// Load `wallet_id` and require that `user_id` owns it.
+///
+/// Returns [`ApiError::NotFound`] when the wallet belongs to someone else (or doesn't exist), so
+/// callers never reveal the existence of another user's wallet. Callers must authenticate the
+/// request themselves first (e.g. [`authenticate`] or [`require_login`]).
+pub async fn require_wallet_owner(
+    state: &AppState,
+    user_id: Uuid,
+    wallet_id: Uuid,
+) -> Result<octo_store::Wallet, ApiError> {
+    let wallet = state.store().get_wallet(wallet_id).await?;
+    if wallet.user_id != Some(user_id) {
+        return Err(ApiError::NotFound);
+    }
+    Ok(wallet)
+}
+
 /// Require a **dashboard login** (reject API keys). Returns the authenticated user id.
 /// Used for sensitive operations (e.g. withdrawals) that must not be driven by an API key.
 pub async fn require_login(

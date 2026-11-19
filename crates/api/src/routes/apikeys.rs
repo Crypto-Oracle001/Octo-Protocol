@@ -17,6 +17,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+/// Minimum accepted `expires_in_days` for a generated API key.
+const API_KEY_EXPIRY_MIN_DAYS: u32 = 1;
+/// Maximum accepted `expires_in_days` for a generated API key.
+const API_KEY_EXPIRY_MAX_DAYS: u32 = 365;
+
 /// Optional body for `generate_key`. An empty body is valid for first-time generation.
 #[derive(Debug, Default, Deserialize)]
 pub struct GenerateKeyRequest {
@@ -95,9 +100,16 @@ pub async fn generate_key(
     {
         return Err(ApiError::BadRequest("invalid API key scopes".into()));
     }
-    let expires_at = req.expires_in_days.map(|days| {
-        chrono::Utc::now() + chrono::Duration::days(i64::from(days.clamp(1, 365)))
-    });
+    if let Some(days) = req.expires_in_days {
+        if !(API_KEY_EXPIRY_MIN_DAYS..=API_KEY_EXPIRY_MAX_DAYS).contains(&days) {
+            return Err(ApiError::BadRequest(
+                "expires_in_days must be between 1 and 365".into(),
+            ));
+        }
+    }
+    let expires_at = req
+        .expires_in_days
+        .map(|days| chrono::Utc::now() + chrono::Duration::days(i64::from(days)));
 
     // octo_sk_<network>_<32 hex chars>
     let mut raw = [0u8; 16];

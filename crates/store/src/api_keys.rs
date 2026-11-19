@@ -81,12 +81,13 @@ impl Store {
         Ok(row)
     }
 
-    /// Delete (revoke) the API key for a wallet. Returns `Ok(())` even if no key existed.
-    pub async fn delete_api_key(&self, wallet_id: Uuid) -> Result<(), StoreError> {
-        sqlx::query("DELETE FROM api_keys WHERE wallet_id = $1")
+    /// Delete (revoke) the API key for a wallet. Returns `true` only if a key was actually
+    /// deleted; a no-op (no key existed) returns `false`.
+    pub async fn delete_api_key(&self, wallet_id: Uuid) -> Result<bool, StoreError> {
+        let result = sqlx::query("DELETE FROM api_keys WHERE wallet_id = $1")
             .bind(wallet_id)
             .execute(&self.pool)
             .await?;
-        Ok(())
+        Ok(result.rows_affected() > 0)
     }
 }

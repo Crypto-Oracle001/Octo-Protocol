@@ -48,39 +48,6 @@ impl Store {
         Ok(found.is_some())
     }
 
-    /// Revoke a JWT by inserting it into the deny-list.
-    ///
-    /// `expires_at` should match the token's `exp` claim (converted from Unix seconds). Duplicate
-    /// revocations (same token) are silently ignored via `ON CONFLICT DO NOTHING`.
-    pub async fn revoke_token(
-        &self,
-        token: &str,
-        expires_at: chrono::DateTime<chrono::Utc>,
-    ) -> Result<(), StoreError> {
-        sqlx::query(
-            r#"
-            INSERT INTO token_denylist (token, expires_at)
-            VALUES ($1, $2)
-            ON CONFLICT (token) DO NOTHING
-            "#,
-        )
-        .bind(token)
-        .bind(expires_at)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
-
-    /// Return `true` if the token has been revoked (is in the deny-list).
-    pub async fn is_token_revoked(&self, token: &str) -> Result<bool, StoreError> {
-        let exists: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM token_denylist WHERE token = $1)")
-                .bind(token)
-                .fetch_one(&self.pool)
-                .await?;
-        Ok(exists)
-    }
-
     /// Delete expired deny-list entries (those whose `expires_at` is in the past).
     ///
     /// Intended to be called periodically (e.g. once per hour in a background task) to prevent

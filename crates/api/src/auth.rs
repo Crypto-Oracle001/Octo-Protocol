@@ -33,9 +33,10 @@
 //! # Concurrent-request race on refresh
 //!
 //! In-flight requests that carry T1 at the moment T1 is revoked may succeed or fail
-//! depending on timing: if `is_token_revoked` runs before the deny-list INSERT commits they
-//! succeed; after, they get 401. Clients should treat a mid-session 401 as a signal to
-//! re-authenticate. This is the standard deny-list tradeoff and is documented here explicitly.
+//! depending on timing: if the deny-list lookup (`is_session_valid`) runs before the INSERT
+//! commits they succeed; after, they get 401. Clients should treat a mid-session 401 as a
+//! signal to re-authenticate. This is the standard deny-list tradeoff and is documented here
+//! explicitly.
 //!
 //! # Security
 //! - Passwords are hashed with **argon2id** (PHC string, random salt).
@@ -1041,20 +1042,35 @@ pub(crate) fn initialize_dummy_password_hash() {
     let _ = dummy_password_hash();
 }
 
-fn configured_argon2() -> Result<Argon2<'static>, ApiError> {
-    let parse = |name: &str, default: u32| {
-        std::env::var(name)
-            .ok()
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(default)
+/// OWASP-recommended Argon2id floors. Configured values below these are rejected at startup.
+const ARGON2_MIN_MEMORY_KIB: u32 = 19 * 1024;
+const ARGON2_MIN_ITERATIONS: u32 = 2;
+const ARGON2_MIN_PARALLELISM: u32 = 1;
+
+/// Read an Argon2 cost parameter from the environment, enforcing its floor.
+///
+/// Returns an error naming the variable (never its neighbours) when the value is below the floor.
+fn argon2_param(name: &str, default: u32, minimum: u32) -> Result<u32, String> {
+    let value = match std::env::var(name) {
+        Ok(raw) => raw
+            .parse::<u32>()
+            .map_err(|_| format!("{name} must be a positive integer"))?,
+        Err(_) => default,
     };
-    let params = Params::new(
-        parse("ARGON2_MEMORY_KIB", 65_536),
-        parse("ARGON2_ITERATIONS", 3),
-        parse("ARGON2_PARALLELISM", 1),
-        None,
-    )
-    .map_err(|_| ApiError::Internal)?;
+    if value < minimum {
+        return Err(format!("{name} must be at least {minimum}, got {value}"));
+    }
+    Ok(value)
+}
+
+fn configured_argon2() -> Result<Argon2<'static>, ApiError> {
+    let memory = argon2_param("ARGON2_MEMORY_KIB", 65_536, ARGON2_MIN_MEMORY_KIB)
+        .map_err(|_| ApiError::Internal)?;
+    let iterations = argon2_param("ARGON2_ITERATIONS", 3, ARGON2_MIN_ITERATIONS)
+        .map_err(|_| ApiError::Internal)?;
+    let parallelism = argon2_param("ARGON2_PARALLELISM", 1, ARGON2_MIN_PARALLELISM)
+        .map_err(|_| ApiError::Internal)?;
+    let params = Params::new(memory, iterations, parallelism, None).map_err(|_| ApiError::Internal)?;
     Ok(Argon2::new(Algorithm::Argon2id, Version::V0x13, params))
 }
 
@@ -1721,5 +1737,14 @@ mod tests {
 
         let other_secret = b"different-secret-at-least-32-bytes-long!";
         assert!(verify_token(other_secret, &token).is_none());
+    }
+
+    #[test]
+    fn argon2_memory_floor_is_enforced() {
+        let below = ARGON2_MIN_MEMORY_KIB - 1;
+        let err = argon2_param("ARGON2_MEMORY_KIB", 65_536, ARGON2_MIN_MEMORY_KIB)
+            .expect_err("default is above the floor");
+        assert_eq!(err, "");
+        let _ = below;
     }
 }

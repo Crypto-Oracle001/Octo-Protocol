@@ -188,6 +188,15 @@ impl From<octo_wallet_core::WalletError> for ApiError {
     }
 }
 
+/// Log an internal failure (type/message only) and map it to the opaque [`ApiError::Internal`].
+///
+/// Use this instead of `map_err(|_| ApiError::Internal)` so a 500 leaves a trace in the logs.
+/// Never pass request bodies, tokens or addresses here — only the underlying error.
+pub fn internal(e: impl std::fmt::Debug) -> ApiError {
+    tracing::error!(error = ?e, "internal error");
+    ApiError::Internal
+}
+
 /// Wrap any serializable value in the standard success envelope with a status code.
 #[derive(Serialize)]
 pub struct Envelope<T: Serialize> {

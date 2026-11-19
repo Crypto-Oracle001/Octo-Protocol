@@ -5,6 +5,9 @@ use uuid::Uuid;
 use crate::error::StoreError;
 use crate::Store;
 
+/// Caps how many guesses a single OTP allows before it can no longer be redeemed.
+pub const OTP_MAX_ATTEMPTS: i16 = 5;
+
 impl Store {
     /// Issue a fresh OTP row. Callers hash the code themselves before calling this.
     pub async fn create_otp(
@@ -41,8 +44,6 @@ impl Store {
         code_hash: &str,
         tx_hash_bound: Option<&str>,
     ) -> Result<(), StoreError> {
-        const MAX_ATTEMPTS: i16 = 5;
-
         // Claim one attempt on the latest live code; no row back means none is redeemable.
         let claimed: Option<(Uuid, String, Option<String>)> = sqlx::query_as(
             r#"
@@ -57,7 +58,7 @@ impl Store {
         )
         .bind(user_id)
         .bind(purpose)
-        .bind(MAX_ATTEMPTS)
+        .bind(OTP_MAX_ATTEMPTS)
         .fetch_optional(&self.pool)
         .await?;
         let (otp_id, stored_hash, bound) = claimed.ok_or(StoreError::InvalidOtp)?;

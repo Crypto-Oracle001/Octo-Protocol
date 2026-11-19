@@ -142,7 +142,7 @@ pub async fn generate_key(
                 "an API key already exists; pass confirm=true to rotate it".into(),
             ))
         }
-        Err(_) => return Err(ApiError::Internal),
+        Err(e) => return Err(crate::error::internal(e)),
     }
 
     if let Some(uid) = wallet.user_id {
@@ -183,7 +183,7 @@ pub async fn delete_key(
         .store()
         .delete_api_key(id)
         .await
-        .map_err(|_| ApiError::Internal)?;
+        .map_err(crate::error::internal)?;
 
     if let Some(uid) = wallet.user_id {
         crate::audit::record(
@@ -211,8 +211,7 @@ pub async fn get_key(
         .store()
         .get_api_key(id)
         .await
-        .map_err(|_| ApiError::Internal)?;
-    let key = key.as_ref();
+        .map_err(crate::error::internal)?;
     Ok(Envelope::ok(ApiKeyInfo {
         wallet_id: id,
         configured: key.is_some(),

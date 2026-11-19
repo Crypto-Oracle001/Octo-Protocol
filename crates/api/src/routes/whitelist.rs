@@ -40,7 +40,7 @@ pub async fn get_config(
         .store()
         .get_withdrawal_allowlist_config(wallet_id)
         .await
-        .map_err(|_| ApiError::Internal)?
+        .map_err(internal)?
         .is_some_and(|c| c.enabled);
     Ok(Envelope::ok(AllowlistConfigView { enabled }))
 }
@@ -69,7 +69,7 @@ pub async fn put_config(
             .store()
             .list_whitelisted_addresses(wallet_id)
             .await
-            .map_err(|_| ApiError::Internal)?;
+            .map_err(internal)?;
         if entries.is_empty() {
             return Err(ApiError::BadRequest(
                 "add at least one address before enabling the withdrawal allowlist".into(),
@@ -81,7 +81,7 @@ pub async fn put_config(
         .store()
         .upsert_withdrawal_allowlist_config(wallet_id, enabled)
         .await
-        .map_err(|_| ApiError::Internal)?;
+        .map_err(internal)?;
     Ok(Envelope::ok(AllowlistConfigView { enabled }))
 }
 
@@ -116,7 +116,7 @@ pub async fn list_addresses(
         .store()
         .list_whitelisted_addresses(wallet_id)
         .await
-        .map_err(|_| ApiError::Internal)?;
+        .map_err(internal)?;
     Ok(Envelope::ok(rows.into_iter().map(Into::into).collect()))
 }
 

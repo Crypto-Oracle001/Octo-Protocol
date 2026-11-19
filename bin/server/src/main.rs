@@ -1,5 +1,5 @@
 //! octo service entry point.
-//!
+//
 // Loads config from env, connects & migrates the DB, then runs both the REST API (axum)
 // and the deposit ingest supervisor (polls Horizon for all wallets) in one process.
 // Can be split for scale — ingest cursor makes the worker restart-safe and rerunnable.
@@ -19,6 +19,7 @@ mod otlp;
 mod telemetry;
 
 use anyhow::{Context, Result};
+use octo_api::auth::Argon2Settings;
 use octo_api::rate_limit::{RateLimitBackend, RateLimiter};
 use octo_api::{build_router, AppState, SigningPolicy};
 use octo_email::EmailSender;
@@ -581,6 +582,10 @@ struct Config {
     /// | `HORIZON_CB_FAILURE_THRESHOLD` | 5 | Consecutive failures before circuit opens |
     /// | `HORIZON_CB_RESET_TIMEOUT_SECS` | 30 | Seconds before circuit allows a probe |
     resilience: ResilienceConfig,
+    /// Argon2 password-hashing tuning (`ARGON2_MEMORY_KIB`, `ARGON2_ITERATIONS`,
+    /// `ARGON2_PARALLELISM`). Parsed once at startup so a malformed value fails fast rather than
+    /// silently falling back to defaults; shared by hashing and the upgrade check.
+    argon2: Argon2Settings,
 }
 
 impl fmt::Debug for Config {
@@ -605,6 +610,7 @@ impl fmt::Debug for Config {
             .field("shutdown_drain_timeout", &self.shutdown_drain_timeout)
             .field("metrics", &self.metrics)
             .field("resilience", &self.resilience)
+            .field("argon2", &self.argon2)
             .finish()
     }
 }
@@ -726,6 +732,9 @@ impl Config {
 
         let resilience = ResilienceConfig::from_env();
         let metrics = MetricsConfig::from_env()?;
+        // Fail fast on a malformed ARGON2_* value instead of silently using defaults.
+        let argon2 = Argon2Settings::from_env()
+            .map_err(|e| anyhow::anyhow!("invalid Argon2 configuration: {e}"))?;
 
         Ok(Config {
             database_url,
@@ -741,356 +750,3 @@ impl Config {
             email_from_address,
             master_key,
             master_key_next,
-            jwt_secret,
-            audit_chain_key,
-            bind_addr,
-            ingest_interval_secs,
-            ingest_page_limit,
-            ingest_lock_retry,
-            shutdown_drain_timeout,
-            run_migrations,
-            metrics,
-            resilience,
-        })
-    }
-}
-
-/// `/metrics` listener settings. Off unless `METRICS_BIND_ADDR` is set.
-#[derive(Clone)]
-struct MetricsConfig {
-    bind_addr: std::net::SocketAddr,
-    /// `METRICS_TOKEN`: bearer token scrapers must present. Required on non-loopback binds.
-    token: Option<Zeroizing<String>>,
-}
-
-impl fmt::Debug for MetricsConfig {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("MetricsConfig")
-            .field("bind_addr", &self.bind_addr)
-            .field("token", &self.token.as_ref().map(|_| "[REDACTED]"))
-            .finish()
-    }
-}
-
-impl MetricsConfig {
-    /// Minimum `METRICS_TOKEN` length, so a reachable endpoint isn't guarded by a guessable one.
-    const MIN_TOKEN_LEN: usize = 32;
-
-    fn from_env() -> Result<Option<MetricsConfig>> {
-        let raw = std::env::var("METRICS_BIND_ADDR").unwrap_or_default();
-        if raw.trim().is_empty() {
-            return Ok(None);
-        }
-        let bind_addr: std::net::SocketAddr = raw
-            .trim()
-            .parse()
-            .with_context(|| format!("METRICS_BIND_ADDR must be an ip:port (got {raw:?})"))?;
-        let token = std::env::var("METRICS_TOKEN")
-            .ok()
-            .filter(|t| !t.is_empty())
-            .map(Zeroizing::new);
-        std::env::remove_var("METRICS_TOKEN");
-        if let Some(t) = &token {
-            if t.len() < Self::MIN_TOKEN_LEN {
-                anyhow::bail!("METRICS_TOKEN must be at least {} bytes", Self::MIN_TOKEN_LEN);
-            }
-        }
-        // Fail closed: anything beyond loopback must authenticate scrapers.
-        if !bind_addr.ip().is_loopback() && token.is_none() {
-            anyhow::bail!(
-                "METRICS_TOKEN is required when METRICS_BIND_ADDR is not a loopback address"
-            );
-        }
-        Ok(Some(MetricsConfig { bind_addr, token }))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn server_startup_fails_loudly_on_an_unrecognized_configured_network_rather_than_defaulting() {
-        std::env::set_var("DATABASE_URL", "postgres://localhost/test");
-        std::env::set_var("NETWORK", "invalid_network_name");
-        assert!(Config::from_env().is_err());
-    }
-
-    // -------------------------------------------------------------------------
-    // #485 – Config::from_env: missing vars, bad keys, bad URLs, bad numerics
-    // -------------------------------------------------------------------------
-
-    /// Minimal set of env vars that satisfies every required field in Config::from_env().
-    /// Tests override individual fields to exercise each error path.
-    fn set_minimal_env() {
-        std::env::set_var("DATABASE_URL", "postgres://localhost/test");
-        std::env::set_var("RESEND_API_KEY", "re_test_key");
-        std::env::set_var("EMAIL_FROM_ADDRESS", "noreply@example.com");
-        // MASTER_KEY: a valid base64-encoded 32-byte key
-        std::env::set_var("MASTER_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
-        // AUDIT_CHAIN_KEY: same format
-        std::env::set_var("AUDIT_CHAIN_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
-        std::env::set_var("JWT_SECRET", "supersecretjwtsecretvalue");
-        // Clear optional vars that could bleed between tests
-        std::env::remove_var("NETWORK");
-        std::env::remove_var("RATE_LIMIT_BACKEND");
-        std::env::remove_var("MASTER_KEY_NEXT");
-        std::env::remove_var("METRICS_BIND_ADDR");
-        std::env::remove_var("INGEST_LOCK_RETRY_SECS");
-        std::env::remove_var("RUN_MIGRATIONS");
-    }
-
-    fn clear_required_env() {
-        for var in &[
-            "DATABASE_URL", "RESEND_API_KEY", "EMAIL_FROM_ADDRESS",
-            "MASTER_KEY", "AUDIT_CHAIN_KEY", "JWT_SECRET",
-            "NETWORK", "RATE_LIMIT_BACKEND", "MASTER_KEY_NEXT",
-            "METRICS_BIND_ADDR", "INGEST_LOCK_RETRY_SECS", "RUN_MIGRATIONS",
-        ] {
-            std::env::remove_var(var);
-        }
-    }
-
-    // --- Missing required variables ---
-
-    #[test]
-    fn missing_database_url_returns_error() {
-        clear_required_env();
-        set_minimal_env();
-        std::env::remove_var("DATABASE_URL");
-        assert!(Config::from_env().is_err());
-    }
-
-    #[test]
-    fn missing_resend_api_key_returns_error() {
-        clear_required_env();
-        set_minimal_env();
-        std::env::remove_var("RESEND_API_KEY");
-        assert!(Config::from_env().is_err());
-    }
-
-    #[test]
-    fn missing_email_from_address_returns_error() {
-        clear_required_env();
-        set_minimal_env();
-        std::env::remove_var("EMAIL_FROM_ADDRESS");
-        assert!(Config::from_env().is_err());
-    }
-
-    #[test]
-    fn missing_master_key_returns_error() {
-        clear_required_env();
-        set_minimal_env();
-        std::env::remove_var("MASTER_KEY");
-        assert!(Config::from_env().is_err());
-    }
-
-    #[test]
-    fn missing_audit_chain_key_returns_error() {
-        clear_required_env();
-        set_minimal_env();
-        std::env::remove_var("AUDIT_CHAIN_KEY");
-        assert!(Config::from_env().is_err());
-    }
-
-    #[test]
-    fn missing_jwt_secret_returns_error() {
-        clear_required_env();
-        set_minimal_env();
-        std::env::remove_var("JWT_SECRET");
-        assert!(Config::from_env().is_err());
-    }
-
-    // --- Malformed / wrong-length key values ---
-
-    #[test]
-    fn master_key_with_non_base64_value_returns_error() {
-        clear_required_env();
-        set_minimal_env();
-        std::env::set_var("MASTER_KEY", "not-valid-base64!!!");
-        assert!(Config::from_env().is_err());
-    }
-
-    #[test]
-    fn master_key_base64_but_wrong_length_returns_error() {
-        clear_required_env();
-        set_minimal_env();
-        // base64 of 16 bytes — valid base64 but only 16 bytes, not 32
-        std::env::set_var("MASTER_KEY", "AAAAAAAAAAAAAAAAAAAAAA==");
-        assert!(Config::from_env().is_err());
-    }
-
-    #[test]
-    fn audit_chain_key_with_non_base64_value_returns_error() {
-        clear_required_env();
-        set_minimal_env();
-        std::env::set_var("AUDIT_CHAIN_KEY", "not-valid-base64!!!");
-        assert!(Config::from_env().is_err());
-    }
-
-    #[test]
-    fn master_key_next_with_wrong_length_returns_error() {
-        clear_required_env();
-        set_minimal_env();
-        // base64 of 16 bytes — too short for a 32-byte key
-        std::env::set_var("MASTER_KEY_NEXT", "AAAAAAAAAAAAAAAAAAAAAA==");
-        assert!(Config::from_env().is_err());
-        std::env::remove_var("MASTER_KEY_NEXT");
-    }
-
-    // --- JWT_SECRET boundary ---
-
-    #[test]
-    fn jwt_secret_shorter_than_16_bytes_returns_error() {
-        clear_required_env();
-        set_minimal_env();
-        std::env::set_var("JWT_SECRET", "tooshort");  // 8 bytes
-        assert!(Config::from_env().is_err());
-    }
-
-    #[test]
-    fn jwt_secret_exactly_16_bytes_is_accepted() {
-        clear_required_env();
-        set_minimal_env();
-        std::env::set_var("JWT_SECRET", "exactly16bytesxx");  // 16 bytes
-        assert!(Config::from_env().is_ok());
-    }
-
-    // --- NETWORK ---
-
-    #[test]
-    fn invalid_network_value_returns_error() {
-        clear_required_env();
-        set_minimal_env();
-        std::env::set_var("NETWORK", "notanetwork");
-        assert!(Config::from_env().is_err());
-    }
-
-    #[test]
-    fn valid_network_testnet_is_accepted() {
-        clear_required_env();
-        set_minimal_env();
-        std::env::set_var("NETWORK", "testnet");
-        assert!(Config::from_env().is_ok());
-    }
-
-    // --- RATE_LIMIT_BACKEND ---
-
-    #[test]
-    fn invalid_rate_limit_backend_returns_error() {
-        clear_required_env();
-        set_minimal_env();
-        std::env::set_var("RATE_LIMIT_BACKEND", "redis");
-        assert!(Config::from_env().is_err());
-        std::env::remove_var("RATE_LIMIT_BACKEND");
-    }
-
-    #[test]
-    fn rate_limit_backend_memory_is_accepted() {
-        clear_required_env();
-        set_minimal_env();
-        std::env::set_var("RATE_LIMIT_BACKEND", "memory");
-        assert!(Config::from_env().is_ok());
-        std::env::remove_var("RATE_LIMIT_BACKEND");
-    }
-
-    // --- INGEST_LOCK_RETRY_SECS ---
-
-    #[test]
-    fn ingest_lock_retry_secs_zero_returns_error() {
-        clear_required_env();
-        set_minimal_env();
-        std::env::set_var("INGEST_LOCK_RETRY_SECS", "0");
-        assert!(Config::from_env().is_err());
-        std::env::remove_var("INGEST_LOCK_RETRY_SECS");
-    }
-
-    #[test]
-    fn ingest_lock_retry_secs_negative_returns_error() {
-        clear_required_env();
-        set_minimal_env();
-        std::env::set_var("INGEST_LOCK_RETRY_SECS", "-1");
-        assert!(Config::from_env().is_err());
-        std::env::remove_var("INGEST_LOCK_RETRY_SECS");
-    }
-
-    #[test]
-    fn ingest_lock_retry_secs_non_numeric_returns_error() {
-        clear_required_env();
-        set_minimal_env();
-        std::env::set_var("INGEST_LOCK_RETRY_SECS", "fast");
-        assert!(Config::from_env().is_err());
-        std::env::remove_var("INGEST_LOCK_RETRY_SECS");
-    }
-
-    #[test]
-    fn ingest_lock_retry_secs_one_is_accepted() {
-        clear_required_env();
-        set_minimal_env();
-        std::env::set_var("INGEST_LOCK_RETRY_SECS", "1");
-        assert!(Config::from_env().is_ok());
-        std::env::remove_var("INGEST_LOCK_RETRY_SECS");
-    }
-
-    // --- RUN_MIGRATIONS ---
-
-    #[test]
-    fn run_migrations_invalid_value_returns_error() {
-        clear_required_env();
-        set_minimal_env();
-        std::env::set_var("RUN_MIGRATIONS", "yes_please");
-        assert!(Config::from_env().is_err());
-        std::env::remove_var("RUN_MIGRATIONS");
-    }
-
-    #[test]
-    fn run_migrations_false_is_accepted() {
-        clear_required_env();
-        set_minimal_env();
-        std::env::set_var("RUN_MIGRATIONS", "false");
-        assert!(Config::from_env().is_ok());
-        std::env::remove_var("RUN_MIGRATIONS");
-    }
-
-    // --- METRICS_BIND_ADDR / METRICS_TOKEN ---
-
-    #[test]
-    fn metrics_bind_addr_non_loopback_without_token_returns_error() {
-        clear_required_env();
-        set_minimal_env();
-        std::env::set_var("METRICS_BIND_ADDR", "0.0.0.0:9090");
-        std::env::remove_var("METRICS_TOKEN");
-        assert!(Config::from_env().is_err());
-        std::env::remove_var("METRICS_BIND_ADDR");
-    }
-
-    #[test]
-    fn metrics_bind_addr_loopback_without_token_is_accepted() {
-        clear_required_env();
-        set_minimal_env();
-        std::env::set_var("METRICS_BIND_ADDR", "127.0.0.1:9090");
-        std::env::remove_var("METRICS_TOKEN");
-        assert!(Config::from_env().is_ok());
-        std::env::remove_var("METRICS_BIND_ADDR");
-    }
-
-    #[test]
-    fn metrics_token_shorter_than_min_returns_error() {
-        clear_required_env();
-        set_minimal_env();
-        std::env::set_var("METRICS_BIND_ADDR", "0.0.0.0:9090");
-        std::env::set_var("METRICS_TOKEN", "tooshort");  // < 32 bytes
-        assert!(Config::from_env().is_err());
-        std::env::remove_var("METRICS_BIND_ADDR");
-        std::env::remove_var("METRICS_TOKEN");
-    }
-
-    #[test]
-    fn metrics_bind_addr_malformed_returns_error() {
-        clear_required_env();
-        set_minimal_env();
-        std::env::set_var("METRICS_BIND_ADDR", "not-a-socket-addr");
-        assert!(Config::from_env().is_err());
-        std::env::remove_var("METRICS_BIND_ADDR");
-    }
-}

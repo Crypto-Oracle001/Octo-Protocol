@@ -311,7 +311,14 @@ so it cannot escalate or revoke itself.
 ## Audit logs
 
 - `GET /v1/audit-logs` — your account's activity, filterable by `category` and a free-text
-  `search`.
+  `search` (trimmed, at most 100 characters; longer is `400`). Returns at most
+  `AUDIT_LIST_LIMIT` (200) rows, newest first.
+
+## Uploads
+
+- `GET /v1/uploads/signature` — a short-lived signed upload signature for the configured
+  Cloudinary account. When the server has no Cloudinary settings the endpoint answers `503`
+  (`service_unavailable`); the client did nothing wrong.
 
 ## Conventions
 
@@ -348,14 +355,14 @@ snapshot test (`crates/api/tests/snapshots/error_codes.snap`).
 | `unsupported_media_type` | 415 | The request body has an unsupported Content-Type. |
 | `too_many_requests` | 429 | A rate limit or budget would be exceeded. |
 | `internal_error` | 500 | An internal error occurred; details are logged, never returned. |
-| `service_unavailable` | 503 | A dependency needed to make a safe decision is unavailable. |
+| `service_unavailable` | 503 | A server-side capability is not configured or temporarily unavailable. |
 | `upstream_timeout` | 504 | An upstream dependency (e.g. Horizon) did not answer in time. |
 
 See also [errors.md](errors.md) for the per-code remedies.
 
 ## Rate Limits
 
-The API enforces fixed-window rate limiting on unauthenticated and authentication endpoints to protect against brute-force and resource-exhaustion attacks. When a rate limit is exceeded, the server responds with HTTP `429 Too Many Requests`.
+The API enforces fixed-window rate limiting on unauthenticated and authentication endpoints to protect against brute-force and resource-exhaustion attacks. When a rate limit is exceeded, the server responds with HTTP `429 Too Many Requests`. No `Retry-After` header is guaranteed: back off with an exponential delay of your own (see [errors.md](errors.md)).
 
 Counters are shared across replicas through Postgres by default (`RATE_LIMIT_BACKEND=postgres`), so limits hold regardless of how many instances run and survive restarts; see `docs/ha-topology.md`. Per-IP keys use the first `X-Forwarded-For` hop only when it parses as an IP address.
 

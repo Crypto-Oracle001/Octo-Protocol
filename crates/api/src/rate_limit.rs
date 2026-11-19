@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 /// Cap on tracked (key, class) buckets before expired entries are swept.
@@ -237,18 +237,50 @@ impl RateLimiter {
     }
 }
 
-fn ip_in_cidr(ip: IpAddr, cidr: &str) -> bool {
-    let (network, prefix) = match cidr.trim().split_once('/') {
-        Some((network, prefix)) => (network, prefix.parse::<u32>().ok()),
-        None => return cidr.trim().parse::<IpAddr>().ok() == Some(ip),
+/// Parse one `TRUSTED_PROXY_CIDRS` entry into `(network, prefix)`; `None` when invalid.
+fn parse_cidr(cidr: &str) -> Option<(IpAddr, u8)> {
+    let cidr = cidr.trim();
+    let (network, prefix) = match cidr.split_once('/') {
+        Some((network, prefix)) => (network, prefix.parse::<u8>().ok()?),
+        None => return cidr.parse::<IpAddr>().ok().map(|ip| (ip, 32)),
     };
-    let Some(prefix) = prefix else { return false };
-    match (ip, network.parse::<IpAddr>().ok()) {
-        (IpAddr::V4(ip), Some(IpAddr::V4(network))) if prefix <= 32 => {
+    let network = network.trim().parse::<IpAddr>().ok()?;
+    let max = if network.is_ipv4() { 32 } else { 128 };
+    (prefix <= max).then_some((network, prefix))
+}
+
+/// Parse the whole variable, warning about and skipping entries that fail to parse.
+fn parse_trusted_proxies(value: &str) -> Vec<(IpAddr, u8)> {
+    value
+        .split(',')
+        .filter(|entry| !entry.trim().is_empty())
+        .filter_map(|entry| match parse_cidr(entry) {
+            Some(cidr) => Some(cidr),
+            None => {
+                tracing::warn!(entry = entry.trim(), "ignoring unparsable TRUSTED_PROXY_CIDRS entry");
+                None
+            }
+        })
+        .collect()
+}
+
+/// Parsed `TRUSTED_PROXY_CIDRS`, read from the environment once per process.
+fn trusted_proxies() -> &'static [(IpAddr, u8)] {
+    static TRUSTED_PROXIES: OnceLock<Vec<(IpAddr, u8)>> = OnceLock::new();
+    TRUSTED_PROXIES.get_or_init(|| {
+        std::env::var("TRUSTED_PROXY_CIDRS")
+            .map(|value| parse_trusted_proxies(&value))
+            .unwrap_or_default()
+    })
+}
+
+fn ip_in_cidr(ip: IpAddr, (network, prefix): (IpAddr, u8)) -> bool {
+    match (ip, network) {
+        (IpAddr::V4(ip), IpAddr::V4(network)) => {
             let mask = if prefix == 0 { 0 } else { u32::MAX << (32 - prefix) };
             u32::from(ip) & mask == u32::from(network) & mask
         }
-        (IpAddr::V6(ip), Some(IpAddr::V6(network))) if prefix <= 128 => {
+        (IpAddr::V6(ip), IpAddr::V6(network)) => {
             let mask = if prefix == 0 { 0 } else { u128::MAX << (128 - prefix) };
             u128::from(ip) & mask == u128::from(network) & mask
         }
@@ -257,9 +289,7 @@ fn ip_in_cidr(ip: IpAddr, cidr: &str) -> bool {
 }
 
 fn is_trusted_proxy(ip: IpAddr) -> bool {
-    std::env::var("TRUSTED_PROXY_CIDRS")
-        .ok()
-        .is_some_and(|value| value.split(',').any(|cidr| ip_in_cidr(ip, cidr)))
+    trusted_proxies().iter().any(|cidr| ip_in_cidr(ip, *cidr))
 }
 
 /// Resolve the client address while honoring forwarding headers only from configured proxies.
@@ -456,6 +486,20 @@ mod tests {
     }
 
     #[test]
+    fn parse_trusted_proxies_skips_invalid_entries() {
+        let parsed = parse_trusted_proxies("10.0.0.0/8, not-a-cidr, 2001:db8::/32, 10.0.0.0/99");
+        assert_eq!(
+            parsed,
+            vec![
+                ("10.0.0.0".parse().unwrap(), 8),
+                ("2001:db8::".parse().unwrap(), 32),
+            ]
+        );
+        // An invalid entry must never widen trust.
+        assert!(!parsed.iter().any(|cidr| ip_in_cidr("192.0.2.1".parse().unwrap(), *cidr)));
+    }
+
+    #[test]
     fn client_ip_single_hop_xff_from_trusted_proxy() {
         with_trusted_proxy("10.0.0.1/32", || {
             let peer = "10.0.0.1:443".parse().ok();
@@ -566,8 +610,10 @@ mod tests {
 
     #[test]
     fn cidr_matching_supports_ipv4_and_ipv6() {
-        assert!(ip_in_cidr("10.2.3.4".parse().unwrap(), "10.0.0.0/8"));
-        assert!(!ip_in_cidr("11.2.3.4".parse().unwrap(), "10.0.0.0/8"));
-        assert!(ip_in_cidr("2001:db8::1".parse().unwrap(), "2001:db8::/32"));
+        let v4 = parse_cidr("10.0.0.0/8").unwrap();
+        let v6 = parse_cidr("2001:db8::/32").unwrap();
+        assert!(ip_in_cidr("10.2.3.4".parse().unwrap(), v4));
+        assert!(!ip_in_cidr("11.2.3.4".parse().unwrap(), v4));
+        assert!(ip_in_cidr("2001:db8::1".parse().unwrap(), v6));
     }
 }

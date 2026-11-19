@@ -1042,43 +1042,74 @@ pub(crate) fn initialize_dummy_password_hash() {
     let _ = dummy_password_hash();
 }
 
-/// OWASP-recommended Argon2id floors. Configured values below these are rejected at startup.
-const ARGON2_MIN_MEMORY_KIB: u32 = 19 * 1024;
-const ARGON2_MIN_ITERATIONS: u32 = 2;
-const ARGON2_MIN_PARALLELISM: u32 = 1;
-
-/// Read an Argon2 cost parameter from the environment, enforcing its floor.
+/// Argon2id cost parameters, parsed once from the environment.
 ///
-/// Returns an error naming the variable (never its neighbours) when the value is below the floor.
-fn argon2_param(name: &str, default: u32, minimum: u32) -> Result<u32, String> {
-    let value = match std::env::var(name) {
-        Ok(raw) => raw
-            .parse::<u32>()
-            .map_err(|_| format!("{name} must be a positive integer"))?,
-        Err(_) => default,
-    };
-    if value < minimum {
-        return Err(format!("{name} must be at least {minimum}, got {value}"));
+/// A variable that is set but not a valid integer is a hard error rather than a silent fallback:
+/// silently hashing at the default cost hides a misconfiguration of the password-hashing cost.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Argon2Settings {
+    pub memory_kib: u32,
+    pub iterations: u32,
+    pub parallelism: u32,
+}
+
+impl Argon2Settings {
+    pub(crate) const DEFAULT_MEMORY_KIB: u32 = 65_536;
+    pub(crate) const DEFAULT_ITERATIONS: u32 = 3;
+    pub(crate) const DEFAULT_PARALLELISM: u32 = 1;
+
+    /// Read the settings from the environment, rejecting malformed values.
+    pub(crate) fn from_env() -> Result<Self, String> {
+        Self::from_lookup(|name| std::env::var(name).ok())
     }
-    Ok(value)
+
+    /// Build settings from an arbitrary lookup, so parsing can be unit-tested without touching
+    /// the process environment.
+    pub(crate) fn from_lookup(
+        lookup: impl Fn(&str) -> Option<String>,
+    ) -> Result<Self, String> {
+        let parse = |name: &str, default: u32| match lookup(name) {
+            None => Ok(default),
+            Some(value) => value.trim().parse::<u32>().map_err(|_| {
+                format!("{name} must be a positive integer, got {value:?}")
+            }),
+        };
+        Ok(Self {
+            memory_kib: parse("ARGON2_MEMORY_KIB", Self::DEFAULT_MEMORY_KIB)?,
+            iterations: parse("ARGON2_ITERATIONS", Self::DEFAULT_ITERATIONS)?,
+            parallelism: parse("ARGON2_PARALLELISM", Self::DEFAULT_PARALLELISM)?,
+        })
+    }
+
+    fn params(&self) -> Result<Params, ApiError> {
+        Params::new(self.memory_kib, self.iterations, self.parallelism, None)
+            .map_err(|_| ApiError::Internal)
+    }
+
+    /// Whether `phc` was hashed with different parameters than these.
+    fn needs_upgrade(&self, phc: &str) -> bool {
+        !phc.contains(&format!(
+            "m={},t={},p={}",
+            self.memory_kib, self.iterations, self.parallelism
+        ))
+    }
 }
 
 fn configured_argon2() -> Result<Argon2<'static>, ApiError> {
-    let memory = argon2_param("ARGON2_MEMORY_KIB", 65_536, ARGON2_MIN_MEMORY_KIB)
-        .map_err(|_| ApiError::Internal)?;
-    let iterations = argon2_param("ARGON2_ITERATIONS", 3, ARGON2_MIN_ITERATIONS)
-        .map_err(|_| ApiError::Internal)?;
-    let parallelism = argon2_param("ARGON2_PARALLELISM", 1, ARGON2_MIN_PARALLELISM)
-        .map_err(|_| ApiError::Internal)?;
-    let params = Params::new(memory, iterations, parallelism, None).map_err(|_| ApiError::Internal)?;
-    Ok(Argon2::new(Algorithm::Argon2id, Version::V0x13, params))
+    let settings = Argon2Settings::from_env().map_err(|_| ApiError::Internal)?;
+    Ok(Argon2::new(
+        Algorithm::Argon2id,
+        Version::V0x13,
+        settings.params()?,
+    ))
 }
 
 fn password_hash_needs_upgrade(phc: &str) -> bool {
-    let memory = std::env::var("ARGON2_MEMORY_KIB").unwrap_or_else(|_| "65536".into());
-    let iterations = std::env::var("ARGON2_ITERATIONS").unwrap_or_else(|_| "3".into());
-    let parallelism = std::env::var("ARGON2_PARALLELISM").unwrap_or_else(|_| "1".into());
-    !phc.contains(&format!("m={memory},t={iterations},p={parallelism}"))
+    match Argon2Settings::from_env() {
+        Ok(settings) => settings.needs_upgrade(phc),
+        // Malformed settings are rejected at startup; never silently claim an upgrade is needed.
+        Err(_) => false,
+    }
 }
 
 type HmacSha256 = Hmac<Sha256>;
@@ -1780,11 +1811,51 @@ mod tests {
     }
 
     #[test]
-    fn argon2_memory_floor_is_enforced() {
-        let below = ARGON2_MIN_MEMORY_KIB - 1;
-        let err = argon2_param("ARGON2_MEMORY_KIB", 65_536, ARGON2_MIN_MEMORY_KIB)
-            .expect_err("default is above the floor");
-        assert_eq!(err, "");
-        let _ = below;
+    fn argon2_settings_use_defaults_when_unset() {
+        let settings = Argon2Settings::from_lookup(|_| None).expect("missing vars use defaults");
+        assert_eq!(
+            settings,
+            Argon2Settings {
+                memory_kib: Argon2Settings::DEFAULT_MEMORY_KIB,
+                iterations: Argon2Settings::DEFAULT_ITERATIONS,
+                parallelism: Argon2Settings::DEFAULT_PARALLELISM,
+            }
+        );
+    }
+
+    #[test]
+    fn argon2_settings_parse_valid_values() {
+        let settings = Argon2Settings::from_lookup(|name| match name {
+            "ARGON2_MEMORY_KIB" => Some("131072".into()),
+            "ARGON2_ITERATIONS" => Some("4".into()),
+            "ARGON2_PARALLELISM" => Some("2".into()),
+            _ => None,
+        })
+        .expect("valid values parse");
+        assert_eq!(settings.memory_kib, 131_072);
+        assert_eq!(settings.iterations, 4);
+        assert_eq!(settings.parallelism, 2);
+    }
+
+    #[test]
+    fn argon2_settings_reject_malformed_values() {
+        for name in ["ARGON2_MEMORY_KIB", "ARGON2_ITERATIONS", "ARGON2_PARALLELISM"] {
+            let err = Argon2Settings::from_lookup(|var| {
+                (var == name).then(|| "not-a-number".to_string())
+            })
+            .expect_err("malformed value must be rejected");
+            assert!(err.contains(name), "error should name {name}: {err}");
+        }
+    }
+
+    #[test]
+    fn argon2_settings_needs_upgrade_matches_used_params() {
+        let settings = Argon2Settings {
+            memory_kib: 65_536,
+            iterations: 3,
+            parallelism: 1,
+        };
+        assert!(!settings.needs_upgrade("$argon2id$v=19$m=65536,t=3,p=1$c2FsdA$aGFzaA"));
+        assert!(settings.needs_upgrade("$argon2id$v=19$m=4096,t=3,p=1$c2FsdA$aGFzaA"));
     }
 }

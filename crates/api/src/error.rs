@@ -140,11 +140,11 @@ impl IntoResponse for ApiError {
     }
 }
 
-/// Log the underlying error and map it to an opaque [`ApiError::Internal`].
+/// Log the cause of an internal failure and map it to the opaque [`ApiError::Internal`].
 ///
-/// Only the error value is logged — never request bodies, tokens, addresses, webhook URLs or
-/// secrets. The client response stays the generic `internal server error`.
-pub(crate) fn internal<E: std::fmt::Debug>(e: E) -> ApiError {
+/// Only the error's `Debug` representation is logged — never request bodies, tokens, API keys or
+/// addresses — and the client response stays the generic "internal server error".
+pub(crate) fn internal(e: impl std::fmt::Debug) -> ApiError {
     tracing::error!(error = ?e, "internal error");
     ApiError::Internal
 }
@@ -252,18 +252,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn service_unavailable_has_stable_code() {
-        assert_eq!(
-            ApiError::ServiceUnavailable("x".into()).code(),
-            "service_unavailable"
-        );
-    }
-
-    #[test]
-    fn code_for_status_maps_service_unavailable() {
-        assert_eq!(
-            code_for_status(StatusCode::SERVICE_UNAVAILABLE),
-            "service_unavailable"
-        );
+    fn internal_maps_to_opaque_500() {
+        let err = internal("db exploded");
+        assert!(matches!(err, ApiError::Internal));
+        let (status, message) = err.parts();
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(message, "internal server error");
     }
 }

@@ -39,19 +39,30 @@ use tracing::Instrument;
 /// Canonical header name for request correlation IDs.
 pub static REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
 
+/// Longest caller-supplied request ID accepted; longer values are replaced with a fresh UUID.
+pub const MAX_REQUEST_ID_LEN: usize = 64;
+
 /// Extracted or generated request ID stored in request extensions.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RequestId(pub String);
 
 /// Middleware that extracts or generates a request ID, enters an info span, and echoes it in responses.
+///
+/// A caller-supplied `X-Request-Id` is reused only when, after trimming, it is non-empty, at most
+/// [`MAX_REQUEST_ID_LEN`] bytes, and made up solely of ASCII alphanumerics, `-` and `_`; anything
+/// else is replaced with a fresh UUIDv4 so untrusted input can't bloat or confuse logs.
 pub async fn request_id_middleware(mut req: Request, next: Next) -> Response {
-    // Reuse caller-supplied X-Request-Id if non-empty and valid ASCII, else generate UUIDv4.
+    // Reuse caller-supplied X-Request-Id if it passes validation, else generate UUIDv4.
     let request_id = req
         .headers()
         .get(&REQUEST_ID_HEADER)
         .and_then(|v| v.to_str().ok())
         .map(str::trim)
-        .filter(|s| !s.is_empty() && HeaderValue::from_str(s).is_ok())
+        .filter(|s| {
+            !s.is_empty()
+                && s.len() <= MAX_REQUEST_ID_LEN
+                && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        })
         .map(|s| s.to_string())
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 

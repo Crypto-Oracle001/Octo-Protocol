@@ -137,6 +137,15 @@ impl IntoResponse for ApiError {
     }
 }
 
+/// Log the underlying error and map it to an opaque [`ApiError::Internal`].
+///
+/// Only the error value is logged — never request bodies, tokens, addresses, webhook URLs or
+/// secrets. The client response stays the generic `internal server error`.
+pub(crate) fn internal<E: std::fmt::Debug>(e: E) -> ApiError {
+    tracing::error!(error = ?e, "internal error");
+    ApiError::Internal
+}
+
 /// Map store errors to API errors without leaking DB internals.
 impl From<octo_store::StoreError> for ApiError {
     fn from(e: octo_store::StoreError) -> Self {

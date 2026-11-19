@@ -119,6 +119,98 @@ async fn a_caller_supplied_x_request_id_is_echoed_back_unchanged() {
 }
 
 #[tokio::test]
+async fn an_oversized_x_request_id_is_replaced_with_a_fresh_uuid() {
+    let app = test_router().await;
+    let oversized_id = "a".repeat(200);
+    let req = Request::builder()
+        .uri("/health")
+        .header(HeaderName::from_static("x-request-id"), oversized_id.as_str())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.expect("execute request");
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let header_val = resp
+        .headers()
+        .get(&REQUEST_ID_HEADER)
+        .expect("X-Request-Id header present in response")
+        .to_str()
+        .expect("header is valid ASCII");
+    assert_ne!(header_val, oversized_id, "oversized id must not be echoed");
+    let parsed = Uuid::parse_str(header_val).expect("replacement id must be a valid UUID");
+    assert_eq!(parsed.get_version_num(), 4);
+}
+
+#[tokio::test]
+async fn an_x_request_id_containing_spaces_is_replaced_with_a_fresh_uuid() {
+    let app = test_router().await;
+    let spaced_id = "trace id with spaces";
+    let req = Request::builder()
+        .uri("/health")
+        .header(HeaderName::from_static("x-request-id"), spaced_id)
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.expect("execute request");
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let header_val = resp
+        .headers()
+        .get(&REQUEST_ID_HEADER)
+        .expect("X-Request-Id header present in response")
+        .to_str()
+        .expect("header is valid ASCII");
+    assert_ne!(header_val, spaced_id, "id with spaces must not be echoed");
+    let parsed = Uuid::parse_str(header_val).expect("replacement id must be a valid UUID");
+    assert_eq!(parsed.get_version_num(), 4);
+}
+
+#[tokio::test]
+async fn a_valid_uuid_x_request_id_is_reused_unchanged() {
+    let app = test_router().await;
+    let custom_id = Uuid::new_v4().to_string();
+    let req = Request::builder()
+        .uri("/health")
+        .header(HeaderName::from_static("x-request-id"), custom_id.as_str())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.expect("execute request");
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let header_val = resp
+        .headers()
+        .get(&REQUEST_ID_HEADER)
+        .expect("X-Request-Id header present in response")
+        .to_str()
+        .expect("header is valid ASCII");
+    assert_eq!(header_val, custom_id);
+}
+
+#[tokio::test]
+async fn a_valid_short_alphanumeric_x_request_id_is_reused_unchanged() {
+    let app = test_router().await;
+    let custom_id = "abc-123_XYZ";
+    let req = Request::builder()
+        .uri("/health")
+        .header(HeaderName::from_static("x-request-id"), custom_id)
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.expect("execute request");
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let header_val = resp
+        .headers()
+        .get(&REQUEST_ID_HEADER)
+        .expect("X-Request-Id header present in response")
+        .to_str()
+        .expect("header is valid ASCII");
+    assert_eq!(header_val, custom_id);
+}
+
+#[tokio::test]
 async fn log_output_for_a_request_consistently_carries_the_same_request_id_across_nested_spans() {
     let log_buffer = Arc::new(Mutex::new(Vec::new()));
     let subscriber = tracing_subscriber::fmt()

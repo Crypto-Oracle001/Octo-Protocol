@@ -19,7 +19,7 @@ members = [
     "bin/migrate-keys",
     "bin/backfill-operation-index",
     "bin/seed",
-    "crates/mock-horizon",
+    "crates/horizon-mock",
 ]
 
 [workspace.package]

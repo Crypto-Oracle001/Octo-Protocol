@@ -7,7 +7,8 @@ seriously and appreciate responsible disclosure.
 
 **Do not open a public GitHub issue for security reports.**
 
-Email **security@octo.example** (replace with the real address) with:
+Report privately via GitHub's [private vulnerability reporting](https://github.com/octo/octo/security/advisories/new)
+or email the project-owned mailbox **security@octo.dev** with:
 
 - a description of the issue and its impact,
 - steps to reproduce or a proof of concept,

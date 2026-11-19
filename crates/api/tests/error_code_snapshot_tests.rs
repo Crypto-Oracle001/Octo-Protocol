@@ -30,7 +30,8 @@ fn every_variant() -> Vec<(&'static str, ApiError)> {
             | ApiError::Gone(_)
             | ApiError::TooManyRequests(_)
             | ApiError::Internal
-            | ApiError::GatewayTimeout(_) => {}
+            | ApiError::GatewayTimeout(_)
+            | ApiError::ServiceUnavailable(_) => {}
         }
     }
     vec![
@@ -45,6 +46,7 @@ fn every_variant() -> Vec<(&'static str, ApiError)> {
         ("TooManyRequests", ApiError::TooManyRequests("x".into())),
         ("Internal", ApiError::Internal),
         ("GatewayTimeout", ApiError::GatewayTimeout("x".into())),
+        ("ServiceUnavailable", ApiError::ServiceUnavailable("x".into())),
     ]
 }
 

@@ -11,6 +11,8 @@ pub const WALLET_LABEL_MAX: usize = 64;
 pub const WALLET_DESCRIPTION_MAX: usize = 500;
 /// Max characters in an address `customer_ref`.
 pub const CUSTOMER_REF_MAX: usize = 128;
+/// Max characters in an allowlist entry label.
+pub const WHITELIST_LABEL_MAX: usize = 64;
 
 /// True for invisible or direction-changing characters that can make one string render as another.
 fn is_spoofing_char(c: char) -> bool {

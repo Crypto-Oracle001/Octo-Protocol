@@ -201,6 +201,13 @@ paths:
                 confirm:
                   type: boolean
                   description: Must be `true` to rotate an existing key.
+                expires_in_days:
+                  type: integer
+                  minimum: 1
+                  maximum: 365
+                  description: >
+                    Key lifetime in days. Must be between 1 and 365; out-of-range values are
+                    rejected with 400 rather than clamped.
       responses:
         "201":
           description: Created — the full key, shown once.
@@ -208,6 +215,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Envelope'
+        "400":
+          description: >
+            `expires_in_days` is outside 1..=365. Returns `bad_request` with the message
+            "expires_in_days must be between 1 and 365".
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         "409":
           description: A key already exists and `confirm` was not `true`.
           content:

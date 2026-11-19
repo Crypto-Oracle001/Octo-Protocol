@@ -174,6 +174,13 @@ trustline → `400`.
 - `GET  /v1/wallets/{id}/addresses` — list addresses (paginated). `?customer_ref=` returns just
   the address with that reference (an empty list if none).
 
+## Allowlist
+
+- `POST /v1/wallets/{id}/allowlist` — allowlist a destination address. Body:
+  `{ "address": "G...", "label"?: string }`. `label` is trimmed, limited to 64 characters, and
+  must not contain control or invisible formatting characters; otherwise `400`. The cleaned
+  label is returned in the response.
+
 ## Gas sponsorship
 
 Lets you pay your users' Stellar fees. The **gas tank** is a separate, server-held account that
@@ -295,7 +302,9 @@ All three require a **dashboard JWT** and wallet ownership — an API key can ne
 so it cannot escalate or revoke itself.
 
 - `POST   /v1/wallets/{id}/api-key` — generate/regenerate (the plaintext key is shown **once**;
-  only a SHA-256 hash is stored).
+  only a SHA-256 hash is stored). Optional `expires_in_days` must be between **1 and 365**
+  inclusive; any other value is rejected with `400` (`bad_request`, message
+  `expires_in_days must be between 1 and 365`) instead of being silently clamped.
 - `GET    /v1/wallets/{id}/api-key` — metadata (prefix, created_at) — never the key itself.
 - `DELETE /v1/wallets/{id}/api-key` — revoke.
 

@@ -85,7 +85,7 @@ jobs:
       - name: Check env var docs are complete
         # Fails when a variable read via std::env / dotenvy in the code is missing from the
         # docs table, or when the docs list a variable the code no longer reads. Keeps the
-        # environment variable reference (docs/environment.md) in sync with main.rs and
+        # environment variable reference (docs/environment-variables.md) in sync with main.rs and
         # .env.example. See Octo-Protocol-org/Octo-Protocol#514.
         run: scripts/check-env-docs.sh
 

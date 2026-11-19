@@ -401,7 +401,7 @@ async fn authorize(
         .store()
         .get_user(user_id)
         .await
-        .map_err(|_| ApiError::Internal)?
+        .map_err(crate::error::internal)?
         .filter(|u| u.deleted_at.is_none())
         .ok_or(ApiError::Unauthorized)?;
     verify_password(&password, &user.password_hash)
@@ -437,7 +437,7 @@ async fn owned_wallets(state: &AppState, user_id: Uuid) -> Result<Vec<Wallet>, A
             .store()
             .list_wallets_for_user_page(user_id, 100, before)
             .await
-            .map_err(|_| ApiError::Internal)?;
+            .map_err(crate::error::internal)?;
         let done = page.len() < 100;
         before = page.last().map(|w| w.id);
         wallets.extend(page);

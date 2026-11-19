@@ -59,6 +59,7 @@ pub const ERROR_CODES: &[(&str, u16, &str)] = &[
     ("too_many_requests", 429, "A rate limit or budget would be exceeded."),
     ("internal_error", 500, "An internal error occurred; details are logged, never returned."),
     ("upstream_timeout", 504, "An upstream dependency (e.g. Horizon) did not answer in time."),
+    ("service_unavailable", 503, "A dependency needed to make a safe decision is unavailable."),
 ];
 
 /// Code for an error raised outside [`ApiError`] (extractor rejections, unknown routes, body limit).
@@ -73,6 +74,7 @@ pub fn code_for_status(status: StatusCode) -> &'static str {
         413 => "payload_too_large",
         415 => "unsupported_media_type",
         429 => "too_many_requests",
+        503 => "service_unavailable",
         504 => "upstream_timeout",
         s if s >= 500 => "internal_error",
         _ => "bad_request",
@@ -105,6 +107,7 @@ impl ApiError {
             ApiError::StaleSequence(_) => "stale_sequence",
             ApiError::Internal => "internal_error",
             ApiError::GatewayTimeout(_) => "upstream_timeout",
+            ApiError::ServiceUnavailable(_) => "service_unavailable",
         }
     }
 
@@ -195,6 +198,15 @@ impl From<octo_wallet_core::WalletError> for ApiError {
             W::KeyDerivation | W::Signing | W::SeedDecryption => ApiError::Internal,
         }
     }
+}
+
+/// Log an internal failure (type/message only) and map it to the opaque [`ApiError::Internal`].
+///
+/// Use this instead of `map_err(|_| ApiError::Internal)` so a 500 leaves a trace in the logs.
+/// Never pass request bodies, tokens or addresses here — only the underlying error.
+pub fn internal(e: impl std::fmt::Debug) -> ApiError {
+    tracing::error!(error = ?e, "internal error");
+    ApiError::Internal
 }
 
 /// Wrap any serializable value in the standard success envelope with a status code.

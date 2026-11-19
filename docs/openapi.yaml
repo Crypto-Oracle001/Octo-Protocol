@@ -913,6 +913,7 @@ components:
             - unsupported_media_type
             - too_many_requests
             - internal_error
+            - service_unavailable
             - upstream_timeout
           x-error-codes:
             bad_request: { status: 400, meaning: The request was malformed or failed validation. }
@@ -928,6 +929,7 @@ components:
             unsupported_media_type: { status: 415, meaning: The request body has an unsupported Content-Type. }
             too_many_requests: { status: 429, meaning: A rate limit or budget would be exceeded. }
             internal_error: { status: 500, meaning: "An internal error occurred; details are logged, never returned." }
+            service_unavailable: { status: 503, meaning: "A dependency needed to make a safe decision is unavailable." }
             upstream_timeout: { status: 504, meaning: "An upstream dependency (e.g. Horizon) did not answer in time." }
         message:
           type: string

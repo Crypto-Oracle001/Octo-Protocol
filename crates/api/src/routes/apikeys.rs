@@ -85,7 +85,7 @@ pub async fn generate_key(
     let wallet = owned_wallet(&state, &headers, id).await?;
     let req: GenerateKeyRequest = parse_optional(&body)?;
     let rotate = req.confirm == Some(true);
-    let scopes = req
+    let mut scopes = req
         .scopes
         .unwrap_or_else(|| vec!["read".into(), "write".into(), "sponsor".into()]);
     if scopes.is_empty()
@@ -95,6 +95,9 @@ pub async fn generate_key(
     {
         return Err(ApiError::BadRequest("invalid API key scopes".into()));
     }
+    // Canonicalise: persist a sorted, duplicate-free scope list.
+    scopes.sort_unstable();
+    scopes.dedup();
     let expires_at = req.expires_in_days.map(|days| {
         chrono::Utc::now() + chrono::Duration::days(i64::from(days.clamp(1, 365)))
     });
@@ -200,12 +203,13 @@ pub async fn get_key(
         .get_api_key(id)
         .await
         .map_err(|_| ApiError::Internal)?;
+    let key = key.as_ref();
     Ok(Envelope::ok(ApiKeyInfo {
         wallet_id: id,
         configured: key.is_some(),
-        prefix: key.as_ref().map(|key| key.prefix.clone()),
-        scopes: key.as_ref().map(|key| key.scopes.clone()).unwrap_or_default(),
-        last_used_at: key.as_ref().and_then(|key| key.last_used_at.clone()),
-        expires_at: key.and_then(|key| key.expires_at),
+        prefix: key.map(|k| k.prefix.clone()),
+        scopes: key.map(|k| k.scopes.clone()).unwrap_or_default(),
+        last_used_at: key.and_then(|k| k.last_used_at),
+        expires_at: key.and_then(|k| k.expires_at),
     }))
 }

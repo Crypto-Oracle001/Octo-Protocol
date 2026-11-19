@@ -71,7 +71,7 @@ This document serves as the single changelog-style decision index tracking every
 
 ## Migration Lint Rules
 
-CI runs a migration linter (`ci/lint-migrations.sh`) on every PR that touches `crates/store/migrations/`. The linter scans each migration file for statements that can lock a hot table or destroy data, and fails the build unless the statement is either safe or explicitly annotated.
+CI runs a migration linter (`scripts/lint-migrations.sh`) on every PR that touches `crates/store/migrations/`. The linter scans each migration file for statements that can lock a hot table or destroy data, and fails the build unless the statement is either safe or explicitly annotated. Run it locally with `just lint-migrations`.
 
 ### Flagged statements
 
@@ -85,6 +85,19 @@ CI runs a migration linter (`ci/lint-migrations.sh`) on every PR that touches `c
 | `alter-type` | `ALTER TABLE ... ALTER COLUMN ... TYPE ...` | Rewrites the whole table under `ACCESS EXCLUSIVE`; on large tables this is a full outage. |
 
 `CREATE INDEX CONCURRENTLY` and `DROP INDEX CONCURRENTLY` are allowed and are the preferred form for any table that may hold production traffic.
+
+### Hot tables guarded by `alter-type`
+
+`ALTER TYPE` is flagged on every table, but the linter additionally tracks the high-volume tables below (`LARGE_TABLES` in `scripts/lint-migrations.sh`) so a rewrite of any of them is called out explicitly. These tables hold production traffic that grows with every wallet, transaction and webhook, so a column type change rewrites the whole table under `ACCESS EXCLUSIVE` and is a full outage rather than a brief lock.
+
+| Table | Why it is hot |
+|---|---|
+| `transactions` | One row per on-chain operation across all wallets; the largest ledger table. |
+| `audit_logs` | Append-only trail written on every dashboard action; grows unbounded. |
+| `webhook_deliveries` | One row per delivery attempt per endpoint; high write rate. |
+| `sessions` | One row per active login; rewritten on every session refresh. |
+
+The list must stay in sync with `crates/store/migrations/`: when a new high-volume table is added, add it to `LARGE_TABLES` and to this table in the same PR. If a type change on one of these tables is genuinely required, use the `-- migration-lint: allow <reason>` override and record it in *Existing exceptions* below.
 
 ### Annotated overrides
 

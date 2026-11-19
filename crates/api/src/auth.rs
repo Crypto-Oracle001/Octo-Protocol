@@ -33,9 +33,10 @@
 //! # Concurrent-request race on refresh
 //!
 //! In-flight requests that carry T1 at the moment T1 is revoked may succeed or fail
-//! depending on timing: if `is_token_revoked` runs before the deny-list INSERT commits they
-//! succeed; after, they get 401. Clients should treat a mid-session 401 as a signal to
-//! re-authenticate. This is the standard deny-list tradeoff and is documented here explicitly.
+//! depending on timing: if the deny-list lookup (`is_session_valid`) runs before the INSERT
+//! commits they succeed; after, they get 401. Clients should treat a mid-session 401 as a
+//! signal to re-authenticate. This is the standard deny-list tradeoff and is documented here
+//! explicitly.
 //!
 //! # Security
 //! - Passwords are hashed with **argon2id** (PHC string, random salt).
@@ -1205,19 +1206,33 @@ pub fn verify_token(secret: &[u8], token: &str) -> Option<Claims> {
     Some(claims)
 }
 
+/// Compute the HMAC-SHA256 of `data` under `secret`.
+///
+/// `new_from_slice` only fails for key types with a fixed size; HMAC accepts any key length, so
+/// the error is unreachable in practice — but it is mapped rather than unwrapped so a future
+/// change can't turn a request into a panic.
+fn hmac_sha256(secret: &[u8], data: &[u8]) -> Result<Vec<u8>, ApiError> {
+    let mut mac = <HmacSha256 as Mac>::new_from_slice(secret).map_err(|_| ApiError::Internal)?;
+    mac.update(data);
+    Ok(mac.finalize().into_bytes().to_vec())
+}
+
 pub(crate) fn sign_hs256(secret: &[u8], input: &[u8]) -> String {
-    let mut mac = <HmacSha256 as Mac>::new_from_slice(secret).expect("HMAC accepts any key length");
-    mac.update(input);
-    b64(&mac.finalize().into_bytes())
+    hmac_sha256(secret, input)
+        .map(|mac| b64(&mac))
+        .unwrap_or_default()
 }
 
 pub(crate) fn verify_hs256(secret: &[u8], input: &[u8], signature_b64: &str) -> bool {
     let Some(sig) = b64_decode(signature_b64) else {
         return false;
     };
-    let mut mac = <HmacSha256 as Mac>::new_from_slice(secret).expect("HMAC accepts any key length");
-    mac.update(input);
-    mac.verify_slice(&sig).is_ok()
+    let Ok(expected) = hmac_sha256(secret, input) else {
+        return false;
+    };
+    // Constant-time comparison, matching `Mac::verify_slice`.
+    use subtle::ConstantTimeEq;
+    expected.ct_eq(&sig).into()
 }
 
 pub(crate) fn now_secs() -> i64 {
@@ -1355,6 +1370,15 @@ pub async fn authenticate_session(
 /// Prefix that marks an octo API key (vs a dashboard login JWT).
 const API_KEY_PREFIX: &str = "octo_sk_";
 
+/// API key scope: read-only access to the key's wallet.
+pub const SCOPE_READ: &str = "read";
+/// API key scope: write access to the key's wallet.
+pub const SCOPE_WRITE: &str = "write";
+/// API key scope: sponsor access to the key's wallet.
+pub const SCOPE_SPONSOR: &str = "sponsor";
+/// Every scope an API key may be granted.
+pub const ALL_SCOPES: &[&str] = &[SCOPE_READ, SCOPE_WRITE, SCOPE_SPONSOR];
+
 /// Extract the raw bearer token (`octo_sk_…` or a JWT), if present.
 fn bearer(headers: &axum::http::HeaderMap) -> Option<&str> {
     headers
@@ -1389,7 +1413,7 @@ pub async fn authorize_wallet(
     state: &AppState,
     wallet_id: Uuid,
 ) -> Result<(), ApiError> {
-    authorize_wallet_scope(headers, state, wallet_id, "read").await
+    authorize_wallet_scope(headers, state, wallet_id, SCOPE_READ).await
 }
 
 pub async fn authorize_wallet_scope(

@@ -67,7 +67,7 @@ pub mod signer;
 pub use address::{encode_address, validate_address, Address};
 pub use adapter::EvmAdapter;
 pub use derive::{derive_signing_key, evm_derivation_path};
-pub use error::EvmError;
+pub use error::EvmCoreError;
 pub use signer::{recover_address, sign_digest, EvmSignature, Signer};
 
 #[cfg(test)]
@@ -78,5 +78,10 @@ mod tests {
     fn derive_reexports_resolve() {
         let _ = super::derive_signing_key;
         let _ = super::evm_derivation_path;
+    }
+
+    #[test]
+    fn error_reexport_resolves() {
+        let _ = super::EvmCoreError::Derivation;
     }
 }

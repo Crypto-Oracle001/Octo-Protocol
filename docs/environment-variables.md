@@ -38,6 +38,8 @@ This document is the authoritative reference for every environment variable read
 | `SHUTDOWN_DRAIN_TIMEOUT_SECS` | Seconds to allow in-flight requests to drain during graceful shutdown. | `30` | optional | no |
 | `ALLOWED_ORIGINS` | Comma-separated list of origins permitted by CORS. | none (CORS disabled) | optional | no |
 | `TRUSTED_PROXY_CIDRS` | Comma-separated list of CIDR ranges of trusted reverse proxies, used to resolve client IPs from forwarding headers. | none | optional | no |
+| `OCTO_WEBHOOK_AUTO_DISABLE_AFTER` | Number of consecutive failed webhook deliveries after which an endpoint is automatically disabled. See [webhook-consumer-guide.md](webhook-consumer-guide.md) for the auto-disable behaviour. | value defined by `AUTO_DISABLE_ENV` in `octo-webhooks` | optional | no |
+| `OCTO_ALLOW_LOCAL_WEBHOOKS` | Permits webhook endpoints that point at localhost or private addresses. **Development/test only — never enable in production.** | `false` | optional | no |
 
 ### Required column values
 
